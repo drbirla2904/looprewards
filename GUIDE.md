@@ -1,5 +1,5 @@
 # Firaao: Contabo VPS deployment (no Docker)
-
+read this
 This deployment runs Django/Gunicorn, PostgreSQL, systemd, and Nginx directly on Ubuntu. It does not install or use Docker. The instructions below assume the domain is `firaao.shop` and use Ubuntu 24.04 LTS.
 
 > **Important for a VPS that already runs another project:** never stop its services, change its firewall/SSH rules, or install a second reverse proxy on ports 80/443. First identify what owns those ports. The Nginx commands below are for an existing host-installed Nginx or a VPS with unused web ports. If the existing proxy is Caddy, Apache, or a Docker container, stop after step 1 and adapt the proxy configuration instead of following the Nginx install/configuration commands blindly.
