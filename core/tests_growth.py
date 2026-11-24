@@ -1,13 +1,17 @@
 """Tests for the v2 growth layer: boosts, perks, referrals, tiers, segments, bookings, feedback, campaigns."""
 from datetime import timedelta
 from decimal import Decimal
+import json
+import tempfile
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
+from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from . import engage
 from .models import (Booking, Boost, Business, CustomerProfile, Feedback, Notification, PurchaseEntry, Reward,
-                     RewardGrant, TaskProgress, User)
+                     RewardGrant, ShopOffer, ShopOfferItem, TaskProgress, User)
 
 
 class GrowthBase(APITestCase):
@@ -137,6 +141,117 @@ class PerkTests(GrowthBase):
         self.assertEqual(self.client.put(f"/api/b/{self.code}/perks/", {"welcome": {"title": "", "type": "gift"}}, format="json").status_code, 400)
         self.assertEqual(self.client.put(f"/api/b/{self.code}/perks/", {"welcome": {"title": "x", "type": "nonsense"}}, format="json").status_code, 400)
         self.assertEqual(self.client.put(f"/api/b/{self.code}/perks/", {"welcome": {"title": "x", "type": "gift", "value": "-5"}}, format="json").status_code, 400)
+
+    def test_new_perk_notifies_only_opted_in_customers(self):
+        opted_in = User.objects.create_user("9100000061", "secret1", role="customer")
+        opted_out = User.objects.create_user("9100000062", "secret1", role="customer")
+        CustomerProfile.objects.create(user=opted_in, business=self.biz, marketing_consent=True)
+        CustomerProfile.objects.create(user=opted_out, business=self.biz)
+        self._perks({"welcome": {"title": "Free cookie", "type": "gift"}})
+        self.assertTrue(Notification.objects.filter(user=opted_in, text__contains="Free cookie").exists())
+        self.assertFalse(Notification.objects.filter(user=opted_out).exists())
+
+
+class ShopOfferTests(GrowthBase):
+    def test_offer_announcement_reaches_only_opted_in_shop_members(self):
+        opted_in = User.objects.create_user("9100000071", "secret1", role="customer")
+        opted_out = User.objects.create_user("9100000072", "secret1", role="customer")
+        CustomerProfile.objects.create(user=opted_in, business=self.biz, marketing_consent=True)
+        CustomerProfile.objects.create(user=opted_out, business=self.biz)
+        self.as_owner()
+        response = self.client.post(f"/api/b/{self.code}/offers/", {
+            "offer_type": "bogo",
+            "items": json.dumps([{"name": "Coffee", "price": "50"}]),
+        }, format="multipart")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(Notification.objects.filter(user=opted_in, text__contains="New buy-one-get-one offer").exists())
+        self.assertFalse(Notification.objects.filter(user=opted_out).exists())
+
+    def test_quick_reward_announcement_reaches_opted_in_customers(self):
+        opted_in = User.objects.create_user("9100000073", "secret1", role="customer")
+        CustomerProfile.objects.create(user=opted_in, business=self.biz, marketing_consent=True)
+        self.as_owner()
+        response = self.client.post(f"/api/b/{self.code}/rewards/quick/", {
+            "template": "visits", "n": 2, "give": "Free tea", "give_type": "free_item", "give_value": 0,
+            "expiry_days": 30,
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(Notification.objects.filter(user=opted_in, text__contains="Free tea").exists())
+
+    def test_reward_added_to_program_notifies_opted_in_customers(self):
+        opted_in = User.objects.create_user("9100000074", "secret1", role="customer")
+        CustomerProfile.objects.create(user=opted_in, business=self.biz, marketing_consent=True)
+        self.as_owner()
+        program = self.biz.programs.first()
+        response = self.client.post(f"/api/programs/{program.id}/tasks/", {
+            "title": "Buy 3 teas", "type": "count", "target": 3,
+            "reward": {"title": "Free tea", "type": "free_item", "value": 0},
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(Notification.objects.filter(user=opted_in, text__contains="Free tea").exists())
+
+    def test_shop_offer_items_are_public_and_can_be_turned_off_and_deleted(self):
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        with override_settings(MEDIA_ROOT=media.name):
+            self.as_owner()
+            response = self.client.post(f"/api/b/{self.code}/offers/", {
+                "offer_type": "fixed_price",
+                "items": json.dumps([{"name": "Masala chai", "price": "40", "offer_price": "30"}]),
+                "image_0": SimpleUploadedFile("chai.png", b"image", content_type="image/png"),
+            }, format="multipart")
+            self.assertEqual(response.status_code, 201, response.data)
+            self.assertEqual(response.data["items"][0]["name"], "Masala chai")
+            self.assertTrue(response.data["items"][0]["image"].endswith(".png"))
+
+            public = self.client.get(f"/api/b/{self.code}/").data
+            self.assertEqual(len(public["offers"]), 1)
+            self.assertEqual(public["offers"][0]["items"][0]["offer_price"], "30.00")
+
+            hidden = self.client.patch(f"/api/b/{self.code}/offers/{response.data['id']}/", {"active": False}, format="json")
+            self.assertEqual(hidden.status_code, 200)
+            self.assertEqual(self.client.get(f"/api/b/{self.code}/").data["offers"], [])
+            self.assertFalse(self.client.get(f"/api/b/{self.code}/offers/").data[0]["active"])
+            item = ShopOfferItem.objects.get(offer_id=response.data["id"])
+            image_name = item.image.name
+            self.assertTrue(item.image.storage.exists(image_name))
+            deleted = self.client.delete(f"/api/b/{self.code}/offers/{response.data['id']}/")
+            self.assertEqual(deleted.status_code, 204)
+            self.assertFalse(item.image.storage.exists(image_name))
+
+    def test_percentage_offer_validation_and_remove_all(self):
+        self.as_owner()
+        invalid = self.client.post(f"/api/b/{self.code}/offers/", {
+            "offer_type": "percent_off", "value": "101",
+            "items": json.dumps([{"name": "Coffee", "price": "50"}]),
+        }, format="multipart")
+        self.assertEqual(invalid.status_code, 400)
+
+        created = self.client.post(f"/api/b/{self.code}/offers/", {
+            "offer_type": "bogo", "items": json.dumps([
+                {"name": "Coffee", "price": "50"}, {"name": "Tea", "price": "30"},
+            ]),
+        }, format="multipart")
+        self.assertEqual(created.status_code, 201, created.data)
+        removed = self.client.delete(f"/api/b/{self.code}/offers/")
+        self.assertEqual(removed.status_code, 200)
+        self.assertFalse(self.client.get(f"/api/b/{self.code}/offers/").data[0]["active"])
+
+    def test_owner_can_delete_one_offer_without_touching_the_others(self):
+        self.as_owner()
+        def create(name):
+            response = self.client.post(f"/api/b/{self.code}/offers/", {
+                "offer_type": "bogo",
+                "items": json.dumps([{"name": name, "price": "50"}]),
+            }, format="multipart")
+            self.assertEqual(response.status_code, 201, response.data)
+            return response.data["id"]
+
+        deleted_id, remaining_id = create("Coffee"), create("Tea")
+        response = self.client.delete(f"/api/b/{self.code}/offers/{deleted_id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(ShopOffer.objects.filter(pk=deleted_id).exists())
+        self.assertTrue(ShopOffer.objects.filter(pk=remaining_id, business=self.biz).exists())
 
 
 class TierStreakSegmentTests(GrowthBase):
@@ -379,11 +494,71 @@ class WalletBlueprintBrandingTests(GrowthBase):
         self.assertEqual((pub["brand_color"], pub["about"]), ("#ff8800", "Best chai"))
         self.assertEqual(pub["tiers"][0]["perk"], "Free upgrade")
 
+    def test_shop_location_requires_valid_coordinate_pair(self):
+        self.as_owner()
+        url = f"/api/b/{self.code}/settings/"
+        self.assertEqual(self.client.patch(url, {"lat": 19}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(url, {"lat": 91, "lng": 72}, format="json").status_code, 400)
+        response = self.client.patch(url, {"lat": 0, "lng": 0}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual((response.data["lat"], response.data["lng"]), (0, 0))
+
     def test_shop_page_has_link_preview_tags_and_escapes_name(self):
         Business.objects.filter(pk=self.biz.pk).update(name='<b>"x"</b>')
         html = self.client.get(f"/b/{self.code}/").content.decode()
         self.assertIn('property="og:title"', html)
         self.assertNotIn('<b>"x"</b>', html)
+
+
+    def test_staff_verifies_follow_before_one_shared_reward_is_issued(self):
+        self.as_owner()
+        settings_url = f"/api/b/{self.code}/settings/"
+        self.assertEqual(self.client.patch(settings_url, {"instagram_url": "https://www.instagram.com/chaipoint/"}, format="json").status_code, 200)
+        self.assertEqual(self.client.patch(settings_url, {"instagram_url": "https://example.com/chaipoint"}, format="json").status_code, 400)
+        perks_url = f"/api/b/{self.code}/perks/"
+        configured = self.client.put(perks_url, {
+            "social": {"title": "Free chai", "type": "free_item", "value": 0, "expiry_days": 14},
+        }, format="json")
+        self.assertEqual(configured.status_code, 200, configured.data)
+
+        customer_token = self.customer("9100000002")
+        self.client.credentials(HTTP_AUTHORIZATION=customer_token)
+        public = self.client.get(f"/api/b/{self.code}/").data
+        self.assertEqual(public["instagram_url"], "https://www.instagram.com/chaipoint/")
+        self.assertEqual(public["perks"]["social"]["title"], "Free chai")
+        requested = self.client.post(f"/api/b/{self.code}/social-follow/claim/", {}, format="json")
+        self.assertEqual(requested.status_code, 201, requested.data)
+        self.assertEqual(self.client.get(f"/api/me/shop/{self.code}/").data["social_follow_claim"]["status"], "pending")
+        self.assertEqual(RewardGrant.objects.filter(profile__user__username="9100000002").count(), 0)
+
+        self.as_owner()
+        staff_response = self.client.post(f"/api/b/{self.code}/staff/", {
+            "mobile": "9100000003", "name": "Counter", "password": "secret1",
+        }, format="json")
+        self.assertEqual(staff_response.status_code, 201, staff_response.data)
+        staff_user = User.objects.get(username="9100000003")
+        self.client.force_authenticate(user=staff_user)
+        claims_url = f"/api/b/{self.code}/social-follow/claims/"
+        claims = self.client.get(claims_url).data["claims"]
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["mobile_last4"], "0002")
+        rejected = self.client.post(f"{claims_url}{claims[0]['id']}/", {"action": "reject"}, format="json")
+        self.assertEqual(rejected.status_code, 200, rejected.data)
+
+        self.client.force_authenticate(user=None)
+        self.client.credentials(HTTP_AUTHORIZATION=customer_token)
+        self.assertEqual(self.client.post(f"/api/b/{self.code}/social-follow/claim/", {}, format="json").status_code, 201)
+        self.as_owner()
+        approved_claim = self.client.get(claims_url).data["claims"][0]
+        approved = self.client.post(f"{claims_url}{approved_claim['id']}/", {"action": "approve"}, format="json")
+        self.assertEqual(approved.status_code, 200, approved.data)
+        self.assertEqual(approved.data["reward_title"], "Free chai")
+        self.assertEqual(RewardGrant.objects.filter(profile__user__username="9100000002", reward__trigger="social").count(), 1)
+
+        self.client.credentials(HTTP_AUTHORIZATION=customer_token)
+        status = self.client.get(f"/api/me/shop/{self.code}/").data["social_follow_claim"]["status"]
+        self.assertEqual(status, "approved")
+        self.assertEqual(self.client.post(f"/api/b/{self.code}/social-follow/claim/", {}, format="json").status_code, 400)
 
     def test_logout_invalidates_the_token(self):
         self.as_owner()

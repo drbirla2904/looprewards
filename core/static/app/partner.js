@@ -1,4 +1,4 @@
-/* Firaao v2 partner (sales agent) portal: apply, referral link, earnings, onboard a shop for an owner. */
+/* OFFLet v2 partner (sales agent) portal: apply, referral link, earnings, onboard a shop for an owner. */
 (function (FX) {
   'use strict';
   const { h, api, field, inp, sel, pill, empty, kpi, toast, modal, busy } = FX;
@@ -7,7 +7,7 @@
 
   function applyForm(me, asOwner) {
     const pan = inp({ maxlength: 10, autocapitalize: 'characters', ph: 'ABCDE1234F' }), upi = inp({ ph: 'yourname@upi' }), err = h('div.err');
-    return h('div.stack.l', { style: 'max-width:560px' }, h('div', h('h1', t(asOwner ? 'Refer and earn' : 'Become a partner')), h('p.muted', t(asOwner ? 'Refer other businesses to Firaao and earn a commission in your wallet every time they pay.' : 'Earn a commission every time a shop you bring pays for Firaao.'))),
+    return h('div.stack.l', { style: 'max-width:560px' }, h('div', h('h1', t(asOwner ? 'Refer and earn' : 'Become a partner')), h('p.muted', t(asOwner ? 'Refer other businesses to OFFLet and earn a commission in your wallet every time they pay.' : 'Earn a commission every time a shop you bring pays for OFFLet.'))),
       h('div.card.stack', field('PAN', pan, 'Needed for TDS and payouts.'), field('UPI ID for payouts', upi), err,
         h('button.btn.lg', { onclick: e => busy(e.target, async () => { try { const r = await api('vendor/apply/', 'POST', { pan: pan.value, upi_id: upi.value }); toast(t(r.detail)); FX.render(); } catch (x) { err.textContent = x.message; } }) }, t('Apply'))));
   }
@@ -32,7 +32,7 @@
           if (pw.value.length < 6) throw new Error(t('Set a password for the owner (at least 6 characters).'));
           const body = { category: cat.value, password: pw.value }; for (const [k, v] of Object.entries(f)) body[k] = v.value.trim();
           const r = await api('vendor/assist/', 'POST', body); m.close();
-          const text = t('Your Firaao account is ready. Mobile: {m}, password: {p}. Log in at {u}. You can change the password in Account.', { m: r.mobile, p: body.password, u: location.origin + '/app/' });
+          const text = t('Your OFFLet account is ready. Mobile: {m}, password: {p}. Log in at {u}. You can change the password in Account.', { m: r.mobile, p: body.password, u: location.origin + '/app/' });
           modal(t('Account created'), h('div.stack', h('p', t('Share these login details with the owner now. For safety the password is not stored anywhere you can read it again.')),
             h('div.card', h('div.muted', t('Mobile')), h('b.num', { style: 'font-size:calc(20px * var(--font-scale, .8))' }, r.mobile), h('div.muted', { style: 'margin-top:8px' }, t('Password')), h('b.num', { style: 'font-size:calc(22px * var(--font-scale, .8))' }, body.password)),
             h('button.btn', { onclick: () => FX.share(text, '') }, t('Share on WhatsApp')), h('button.btn.ghost', { onclick: () => FX.copy(text) }, t('Copy'))));
@@ -70,7 +70,7 @@
     if (d.status === 'not_applied') return applyForm(d);
     if (d.status !== 'approved') return h('div.stack.l', h('h1', t('Application received')), h('div.banner.blue', t('We are reviewing your application. You will be notified once it is approved.')));
     const c = d.commission_paise, url = d.referral_url;
-    const text = t('Grow your shop with repeat customers using Firaao. Join here:');
+    const text = t('Grow your shop with repeat customers using OFFLet. Join here:');
     const shops = d.businesses.slice().sort((a, b) => (ORDER[a.health] - ORDER[b.health]));
     const needs = shops.filter(b => b.health !== 'live' || b.state === 'expired' || b.state === 'grace').length;
     return h('div.stack.l', h('div.hd', h('div', h('h1', t('Partner dashboard')), h('p.muted', t('Earn on every subscription payment from the shops you bring'))), h('button.btn', { onclick: () => assistModal(() => FX.render(true)) }, '+ ' + t('Onboard a shop'))),
@@ -87,14 +87,14 @@
   R.kit = async function () {
     const k = await api('vendor/kit/');
     const m = k.plans.monthly ? k.plans.monthly.price : 0;
-    const en = 'Hi! I help local shops get repeat customers with Firaao. Customers scan a QR code and collect stamps and rewards, and you can see who stopped coming and bring them back with an offer. Free ' + k.trial_days + '-day trial, then from ₹' + m + '/month. Try it here: ' + k.referral_url;
-    const hi = 'नमस्ते! मैं Firaao से दुकानों को दोबारा आने वाले ग्राहक दिलाने में मदद करता/करती हूँ। ग्राहक QR स्कैन करके स्टैम्प और रिवॉर्ड जमा करते हैं, और जो ग्राहक आना बंद कर दें उन्हें ऑफ़र भेजकर वापस ला सकते हैं। ' + k.trial_days + ' दिन फ़्री ट्रायल, फिर ₹' + m + '/महीने से। यहाँ आज़माएँ: ' + k.referral_url;
+    const en = 'Hi! I help local shops get repeat customers with OFFLet. Customers scan a QR code and collect stamps and rewards, and you can see who stopped coming and bring them back with an offer. Free ' + k.trial_days + '-day trial, then from ₹' + m + '/month. Try it here: ' + k.referral_url;
+    const hi = 'नमस्ते! मैं OFFLet से दुकानों को दोबारा आने वाले ग्राहक दिलाने में मदद करता/करती हूँ। ग्राहक QR स्कैन करके स्टैम्प और रिवॉर्ड जमा करते हैं, और जो ग्राहक आना बंद कर दें उन्हें ऑफ़र भेजकर वापस ला सकते हैं। ' + k.trial_days + ' दिन फ़्री ट्रायल, फिर ₹' + m + '/महीने से। यहाँ आज़माएँ: ' + k.referral_url;
     const msg = (title, text) => h('div.card.stack', h('b', title), h('p.small', { style: 'white-space:pre-wrap' }, text), h('div.row.wrap', h('button.btn.sm', { onclick: () => FX.share(text, '') }, t('Share on WhatsApp')), h('button.btn.ghost.sm', { onclick: () => FX.copy(text) }, t('Copy'))));
     const faq = [['"I already have a punch card book."', 'Paper cards get lost and you cannot see who stopped coming. Here every customer is on your phone and you can message the ones who drift away.'],
       ['"Customers will not install an app."', 'They do not need to. They scan the QR code and join with their mobile number in 10 seconds.'],
       ['"Is it expensive?"', 'It is free for ' + k.trial_days + ' days, then from ₹' + m + ' a month. One returning customer a day usually pays for it.'],
       ['"I am not good with phones."', 'Pick your business type and a ready program is created for you. I will help you set it up.']];
-    return h('div.stack.l', h('div', h('h1', t('Marketing kit')), h('p.muted', t('Everything you need to explain Firaao and sign up shops'))),
+    return h('div.stack.l', h('div', h('h1', t('Marketing kit')), h('p.muted', t('Everything you need to explain OFFLet and sign up shops'))),
       h('div.card.stack', h('h3', t('Printable flyer with your QR code')), h('p.muted.small', t('Shop owners scan it to start a free trial. It is linked to you, so you earn on their payments.')),
         h('div.row.wrap', h('a.btn', { href: k.flyer_url, target: '_blank', rel: 'noopener' }, t('Flyer in English')), h('a.btn.ghost', { href: k.flyer_url_hi, target: '_blank', rel: 'noopener' }, t('Flyer in Hindi')))),
       h('div.g2', msg(t('WhatsApp message (English)'), en), msg(t('WhatsApp message (Hindi)'), hi)),
@@ -150,9 +150,9 @@
     if (d.status === 'not_applied') return applyForm(d, true);
     if (d.status === 'suspended') return h('div.stack.l', h('h1', t('Refer and earn')), h('div.banner.blue', t('Your referral access is paused. Please contact support.')));
     if (d.status !== 'approved') return h('div.stack.l', h('h1', t('Application received')), h('div.banner.blue', t('We are reviewing your application. You will be notified once it is approved.')));
-    const url = d.referral_url, text = t('I use Firaao to bring customers back to my shop. Try it free:');
+    const url = d.referral_url, text = t('I use OFFLet to bring customers back to my shop. Try it free:');
     const shops = d.businesses.slice().sort((a, b) => (ORDER[a.health] - ORDER[b.health]));
-    return h('div.stack.l', h('div', h('h1', t('Refer and earn')), h('p.muted', t('Earn money in your wallet every time a business you refer pays for Firaao'))),
+    return h('div.stack.l', h('div', h('h1', t('Refer and earn')), h('p.muted', t('Earn money in your wallet every time a business you refer pays for OFFLet'))),
       walletCard(w), tierCard(d),
       h('div.card.stack', h('h3', t('Your referral link')), h('code', { style: 'word-break:break-all' }, url),
         h('div.row.wrap', h('button.btn', { onclick: () => FX.share(text, url) }, t('Share on WhatsApp')), h('button.btn.ghost', { onclick: () => FX.copy(url) }, t('Copy link')), h('a.btn.ghost', { href: '#/kit' }, t('Marketing kit')), h('a.btn.ghost', { href: '#/statements' }, t('Earnings statement')))),

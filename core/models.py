@@ -28,10 +28,16 @@ def _payment_proof_path(instance, filename):
     return f"payment-proofs/{uuid.uuid4().hex}{os.path.splitext(filename)[1].lower()}"
 
 
+def _offer_image_path(instance, filename):
+    import os, uuid
+    return f"offers/{uuid.uuid4().hex}{os.path.splitext(filename)[1].lower()}"
+
+
 class User(AbstractUser):  # username == mobile number
     ROLES = [("owner", "owner"), ("staff", "staff"), ("customer", "customer"), ("vendor", "vendor")]
     role = models.CharField(max_length=10, choices=ROLES, default="customer")
     profile_image = models.ImageField(upload_to=_profile_image_path, blank=True)
+    email_verified = models.BooleanField(default=False)
 
 
 class Business(models.Model):
@@ -58,6 +64,11 @@ class Business(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     whatsapp = models.CharField(max_length=20, blank=True)
     maps_url = models.URLField(blank=True)
+    instagram_url = models.URLField(max_length=300, blank=True)
+    facebook_url = models.URLField(max_length=300, blank=True)
+    youtube_url = models.URLField(max_length=300, blank=True)
+    tiktok_url = models.URLField(max_length=300, blank=True)
+    x_url = models.URLField(max_length=300, blank=True)
     # --- v2: membership tiers (lifetime approved visits) ---
     tier_silver_visits = models.PositiveIntegerField(default=5)
     tier_gold_visits = models.PositiveIntegerField(default=15)
@@ -68,6 +79,29 @@ class Business(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ShopOffer(models.Model):
+    TYPES = [("percent_off", "Percentage off"), ("fixed_price", "Fixed price"), ("bogo", "Buy one get one")]
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="offers")
+    offer_type = models.CharField(max_length=15, choices=TYPES)
+    value = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+
+class ShopOfferItem(models.Model):
+    offer = models.ForeignKey(ShopOffer, on_delete=models.CASCADE, related_name="items")
+    name = models.CharField(max_length=120)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    offer_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    image = models.ImageField(upload_to=_offer_image_path, blank=True)
+
+    class Meta:
+        ordering = ("id",)
 
 
 class Program(models.Model):
@@ -92,18 +126,24 @@ class Task(models.Model):
 
 class Reward(models.Model):
     TYPES = [("free_item", "free_item"), ("percent_off", "percent_off"), ("flat_off", "flat_off"),
-             ("gift", "gift"), ("custom", "custom")]
+             ("gift", "gift"), ("cashback", "cashback"), ("special_offer", "special_offer"), ("custom", "custom")]
     TRIGGERS = [("task", "task"), ("welcome", "welcome"), ("referral", "referral"), ("retired", "retired"),
-                ("winback", "winback")]
+                ("winback", "winback"), ("spin", "spin"), ("social", "social")]
     task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.CASCADE, related_name="rewards")
     title = models.CharField(max_length=120)
-    type = models.CharField(max_length=12, choices=TYPES)
+    type = models.CharField(max_length=15, choices=TYPES)
     value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     expiry_days = models.PositiveIntegerField(default=30)
     terms = models.TextField(blank=True)
     # v2: "welcome" (first approved purchase) and "referral" (friend's first purchase) rewards have no task
     trigger = models.CharField(max_length=10, choices=TRIGGERS, default="task")
     business = models.ForeignKey(Business, null=True, blank=True, on_delete=models.CASCADE, related_name="perk_rewards")
+    min_order_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    product_restrictions = models.CharField(max_length=200, blank=True)
+    item_name = models.CharField(max_length=120, blank=True)
+    original_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    offer_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    image = models.ImageField(upload_to=_offer_image_path, blank=True)
 
 
 class CustomerProfile(models.Model):  # one global login, separate profile per business
@@ -154,6 +194,19 @@ class RewardGrant(models.Model):
     expires_at = models.DateTimeField()
 
 
+class SocialFollowClaim(models.Model):
+    profile = models.OneToOneField(CustomerProfile, on_delete=models.CASCADE, related_name="social_follow_claim")
+    status = models.CharField(max_length=10, default="pending", choices=[
+        ("pending", "pending"), ("approved", "approved"), ("rejected", "rejected"),
+    ])
+    requested_at = models.DateTimeField(default=timezone.now)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="reviewed_social_follow_claims")
+    reward_grant = models.OneToOneField(RewardGrant, null=True, blank=True, on_delete=models.SET_NULL,
+                                        related_name="social_follow_claim")
+
+
 class AuditLog(models.Model):
     business = models.ForeignKey(Business, on_delete=models.CASCADE)
     actor = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
@@ -179,7 +232,7 @@ class Subscription(models.Model):
 
 
 class GatewayPlan(models.Model):
-    """A Razorpay plan Firaao created itself, so AutoPay works with only the API keys (no copying plan IDs by hand).
+    """A Razorpay plan OFFLet created itself, so AutoPay works with only the API keys (no copying plan IDs by hand).
     A new row replaces the old one if the price in settings changes."""
     plan = models.CharField(max_length=10, unique=True)
     rzp_plan_id = models.CharField(max_length=60)
@@ -305,8 +358,11 @@ Subscription.add_to_class("rzp_autorenew_active", models.BooleanField(default=Fa
 
 
 class OtpCode(models.Model):
+    PURPOSES = [("password_reset", "Password reset"), ("email_verify", "Recovery email verification")]
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     code_hash = models.CharField(max_length=64)
+    purpose = models.CharField(max_length=20, choices=PURPOSES, default="password_reset")
+    target_email = models.EmailField(blank=True)
     expires = models.DateTimeField()
     attempts = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -357,3 +413,65 @@ class Feedback(models.Model):
     rating = models.PositiveSmallIntegerField()  # 1..5
     comment = models.CharField(max_length=300, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SpinWheel(models.Model):
+    AUDIENCES = [("all", "All customers"), ("new", "New customers"), ("returning", "Returning customers")]
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="spin_wheels")
+    name = models.CharField(max_length=100)
+    audience = models.CharField(max_length=10, choices=AUDIENCES, default="all")
+    weekdays = models.CharField(max_length=13, blank=True)  # comma-separated Monday=0 ... Sunday=6; blank = every day
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    spins_per_day = models.PositiveSmallIntegerField(default=1)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-updated_at", "-id")
+
+
+class SpinSegment(models.Model):
+    REWARD_TYPES = [("percent_off", "Percentage discount"), ("flat_off", "Fixed discount"),
+                    ("free_item", "Free item"), ("gift", "Gift"), ("cashback", "Cashback"),
+                    ("special_offer", "Special offer"), ("empty", "Try again")]
+    wheel = models.ForeignKey(SpinWheel, on_delete=models.CASCADE, related_name="segments")
+    position = models.PositiveSmallIntegerField()
+    label = models.CharField(max_length=80)
+    reward_type = models.CharField(max_length=15, choices=REWARD_TYPES)
+    probability = models.PositiveSmallIntegerField()  # percent; all active segments must total 100
+    color = models.CharField(max_length=7, default="#5e35b1")
+    icon = models.CharField(max_length=16, default="🎁")
+    image_url = models.URLField(max_length=500, blank=True)
+    value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    expiry_days = models.PositiveSmallIntegerField(default=30)
+    minimum_order = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    product_restrictions = models.CharField(max_length=200, blank=True)
+    terms = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ("position", "id")
+        constraints = [
+            models.UniqueConstraint(fields=("wheel", "position"), name="unique_spin_segment_position"),
+        ]
+
+
+class SpinRecord(models.Model):
+    profile = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="spins")
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="spin_records")
+    wheel = models.ForeignKey(SpinWheel, on_delete=models.SET_NULL, null=True, related_name="spins")
+    segment = models.ForeignKey(SpinSegment, on_delete=models.SET_NULL, null=True, related_name="spins")
+    grant = models.OneToOneField(RewardGrant, on_delete=models.SET_NULL, null=True, blank=True, related_name="spin_record")
+    spin_date = models.DateField()
+    sequence = models.PositiveSmallIntegerField(default=1)
+    outcome = models.CharField(max_length=10, choices=[("won", "Won"), ("try_again", "Try again")])
+    prize_title = models.CharField(max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        constraints = [
+            models.UniqueConstraint(fields=("profile", "business", "spin_date", "sequence"),
+                                    name="unique_customer_daily_spin_sequence"),
+        ]

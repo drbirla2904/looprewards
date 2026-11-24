@@ -19,10 +19,10 @@ set -a
 . ./.env
 set +a
 
-read -r -p "This replaces the live Firaao database. Type RESTORE to continue: " answer
+read -r -p "This replaces the live OFFLet database. Type RESTORE to continue: " answer
 [[ "$answer" == RESTORE ]] || exit 1
 
-sudo systemctl stop firaao
+sudo systemctl stop offlet
 export PGPASSWORD="$POSTGRES_PASSWORD"
 pg_restore -h "${POSTGRES_HOST:-127.0.0.1}" -p "${POSTGRES_PORT:-5432}" \
   -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --role="$POSTGRES_USER" < "$DUMP"
@@ -32,9 +32,9 @@ if [[ -n "$MEDIA_ARCHIVE" ]]; then
   sudo tar -xzf "$MEDIA_ARCHIVE" -C "${MEDIA_ROOT:-$PWD/media}"
 fi
 if [[ -n "$PROOF_ARCHIVE" ]]; then
-  sudo install -d -m 2750 -o firaao -g www-data "$PWD/private-media"
+  sudo install -d -m 2750 -o offlet -g www-data "$PWD/private-media"
   sudo tar -xzf "$PROOF_ARCHIVE" -C "$PWD/private-media"
-  sudo chown -R firaao:www-data "$PWD/private-media"
+  sudo chown -R offlet:www-data "$PWD/private-media"
 fi
-sudo systemctl start firaao
+sudo systemctl start offlet
 echo "Restore completed. Review logs and test the site before reopening traffic."

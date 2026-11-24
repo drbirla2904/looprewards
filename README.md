@@ -1,21 +1,30 @@
 > **v2:** see [UPGRADE.md](UPGRADE.md) for the new growth layer, frontend and upgrade steps.
 
-# Firaao
+# OFFLet
 
 ## Deploy
-Firaao runs directly on Ubuntu without Docker. See **[GUIDE.md](GUIDE.md)** for step-by-step Contabo setup for `firaao.shop`, Nginx/HTTPS, backups, upgrades, and rollback. Once installed, upgrade with `bash ./deploy/deploy.sh`.
+OFFLet runs directly on Ubuntu without Docker. See **[GUIDE.md](GUIDE.md)** for step-by-step Contabo setup for `offlet.in`, Nginx/HTTPS, backups, upgrades, and rollback. Once installed, upgrade with `bash ./deploy/deploy.sh`.
 
 ## Local development
     py -m venv .venv
     .\.venv\Scripts\python.exe -m pip install -r requirements.txt
     $env:DEBUG = "1"
     .\.venv\Scripts\python.exe manage.py makemigrations core
+    .\.venv\Scripts\python.exe manage.py migrate
     .\.venv\Scripts\python.exe manage.py test
     .\.venv\Scripts\python.exe manage.py runserver
 
 
 ## QR card (My shop)
 My shop shows **one** QR card: shop logo/initial, name, tagline, QR code, "Scan to join rewards", address, hours, phone and UPI ID, in the shop's brand colour (Hindi text when the shop language is Hindi). It has only two actions: **Download** (PNG) and **Share** (WhatsApp/any app via the phone's share sheet; falls back to sharing the shop link). It is drawn in the browser, so it fits any phone and needs no extra server work. The older A6/A5/A4/table-tent print pages still exist at `/print/<shop_code>/?size=...` only for the classic fallback UI (`/app/classic/`); they are no longer linked from the app.
+
+## Smart Spin & Win
+Owners can create wheels from **Spin & Win** with 2–12 free-item or percentage-off rewards. Add multiple rewards and their chances are divided equally automatically; optionally set a minimum purchase. Campaigns run every day. The most recently updated matching audience-specific wheel takes precedence over an all-customer wheel.
+
+The Spin & Win QR and share link stay the same as campaigns change; customers see the campaign selected for their audience. Each wheel configures a 1–10 daily spin limit per customer and shop. Owners can delete an individual wheel; existing spin history remains, but the deleted campaign and its analytics are removed. Winning coupons are unique reward codes added to the existing customer rewards wallet; staff redeem them from the usual reward screen, which also supplies spin and redemption analytics. Minimum-purchase conditions are shown on the coupon for the shop to verify when redeeming; OFFLet does not automatically validate a separate point-of-sale order.
+
+## Shop offers
+Owners can add multiple items to percentage-off, fixed-price and buy-one-get-one offers. Each offer can be turned off or permanently deleted individually; deleting an offer also removes its uploaded item images.
 
 ## Launch readiness
 Before production, follow **[GUIDE.md](GUIDE.md)**, complete the pilot checklist, and test payments,
@@ -29,7 +38,7 @@ your own credentials and end-to-end verification; passing the local tests does n
 
 ## Invoices and reminders
 - Each paid payment gets invoice no. `LR/<yy>/<id>` and a printable GST invoice (price treated as GST-inclusive; set SELLER_* in .env). Have your CA confirm the format (CGST/SGST vs IGST split by state is not done).
-- `python manage.py send_reminders` (run daily by the `firaao-daily.timer` systemd timer): trial ends in 2 days, renewal in 7 days, paused notice. Point NOTIFY_WEBHOOK_URL at your SMS/WhatsApp bridge, else it only logs.
+- `python manage.py send_reminders` (run daily by the `offlet-daily.timer` systemd timer): trial ends in 2 days, renewal in 7 days, paused notice. Point NOTIFY_WEBHOOK_URL at your SMS/WhatsApp bridge, else it only logs.
 - Database migrations are committed in `core/migrations/`; create and commit a reviewed migration whenever a model change requires one.
 
 ## Vendors / agents
@@ -56,7 +65,7 @@ your own credentials and end-to-end verification; passing the local tests does n
 ## Reports and notifications
 - Owner dashboard (per shop): customers, repeat-customer rate, top customers, rewards issued vs redeemed, peak hours, approved today, and a customers CSV (signed link valid 10 min). Customer name and mobile are visible only to the shop they joined.
 - In-app notifications: customer gets approved/rejected, reward unlocked, reward expiring (3 days, from the daily `send_reminders`); owner and staff get "new purchase pending". Set `NOTIFY_SMS=1` + `NOTIFY_WEBHOOK_URL` to also send reward unlocked/expiring by SMS/WhatsApp. Broadcast offers are delivered in-app only to customers who opted in to marketing.
-- **Account center:** every signed-in role can update their display name and change their password from Account. Customers can also manage their profile photo; mobile numbers remain read-only.
+- **Account center:** every signed-in role can update their display name, change their password, and verify an optional recovery email from Account. Customers can also manage their profile photo; mobile numbers remain read-only.
 - Customers can hide past purchase history from their account or hide a shop from their profile; shop records, membership, progress, and rewards are preserved. Hidden shops can be restored from Account, and reopening a live shop QR restores it automatically.
 
 ## Hindi
@@ -70,6 +79,6 @@ your own credentials and end-to-end verification; passing the local tests does n
 - **Pause/resume** a program from the dashboard; `PATCH /api/tasks/<id>/` edits a task. Customers already in progress keep the target they started with (snapshot), new cycles use the new target.
 - **Auto-renew:** Razorpay Subscriptions (UPI AutoPay/cards). Create two plans in Razorpay, set `RAZORPAY_PLAN_MONTHLY/YEARLY`, and add `subscription.charged` to the webhook. The first charge is after the trial / current period; each charge creates a payment, invoice and commission automatically. Owners can cancel in the dashboard.
 - **Offers (broadcast):** only to customers who ticked "Send me offers from this shop"; one per shop per day; delivered in-app.
-- **Forgot password:** OTP by SMS through `NOTIFY_WEBHOOK_URL` (logs only until you connect a provider). 5 tries, 10 min expiry, same answer for unknown numbers.
+- **Forgot password:** sign in with mobile number + password. Password-reset OTPs use `NOTIFY_WEBHOOK_URL` when an SMS bridge is configured; otherwise they go to the account's verified recovery email through SMTP. Configure `EMAIL_HOST`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` and `DEFAULT_FROM_EMAIL` in `.env` (a provider's free SMTP tier may be used). Codes expire after 10 minutes, allow 5 attempts, and unknown accounts receive the same response.
 - **Delete my account (DPDP):** customers are erased; owners/agents are anonymised and their shops closed (invoices and commissions must be kept for accounts).
 - **Platform stats:** `GET /api/admin/stats/` with a staff user's token (create one with `createsuperuser`, then log in via `/api/auth/login/`).

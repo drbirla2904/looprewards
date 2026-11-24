@@ -1,4 +1,4 @@
-/* Firaao v2 owner screens, part 2: bookings, offers (campaigns), insights, my shop (QR, branding, rules, services, team), billing. */
+/* OFFLet v2 owner screens, part 2: bookings, offers (campaigns), insights, my shop (QR, branding, rules, services, team), billing. */
 (function (FX) {
   'use strict';
   const { h, api, S, field, inp, sel, pill, empty, kpi, toast, modal, busy, confirmBox } = FX;
@@ -17,41 +17,70 @@
   }
   R.bookings = FX.routes.staff.bookings = bookingsPage;
 
-  /* ---------- offers / campaigns ---------- */
-  R.campaigns = async function (args) {
-    let seg = FX.SEG.some(s => s[0] === args[0]) && args[0] !== 'never' ? args[0] : 'all';
-    const text = h('textarea', { maxlength: 200, placeholder: t('e.g. We miss you! Show this message for double stamps this week.') });
-    const info = h('p.muted'), count = h('small.muted', '0/200');
-    text.addEventListener('input', () => { count.textContent = text.value.length + '/200'; });
-    const SAMPLES = { at_risk: 'We miss you! Visit this week and earn double stamps.', lapsed: 'It has been a while. Come back and we will add a welcome-back gift.', new: 'Thanks for joining! Visit again this week to earn your next stamp faster.', regular: 'You are one of our best customers. A thank-you treat is waiting for you.', all: 'Double stamps this weekend. See you soon!' };
-    const chipsBox = h('div'), go = h('button.btn.lg', { onclick: () => busy(go, async () => { if (!text.value.trim()) throw new Error(t('Write the offer text.')); const r = await api('b/' + code() + '/campaign/', 'POST', { text: text.value, segment: seg }); toast(t('Sent to {n} customers', { n: r.sent })); text.value = ''; }) }, t('Send offer'));
-    const draw = async () => {
-      chipsBox.replaceChildren(h('div.chips', FX.SEG.filter(s => s[0] !== 'never').map(([k, l]) => h('button.chip', { 'aria-pressed': String(k === seg), onclick: () => { seg = k; if (!text.value) text.value = ''; draw(); } }, t(l)))));
-      try { const r = await api('b/' + code() + '/campaign/?segment=' + seg); info.textContent = t('{n} customers will receive this (only those who agreed to offers).', { n: r.audience }); go.disabled = !r.audience; } catch (e) { info.textContent = e.message; }
+  /* ---------- shop-wide offers ---------- */
+  R.campaigns = async function () {
+    const type = sel([['percent_off', 'Percentage off'], ['fixed_price', 'Fixed price'], ['bogo', 'Buy 1 get 1']], 'percent_off');
+    const discount = inp({ type: 'number', min: '1', max: '100', step: '1', value: '10' });
+    const discountField = h('div');
+    const products = h('div.stack.s');
+    const offerList = h('div.stack.s');
+    const removeAll = h('button.btn.danger.sm', { onclick: async e => { if (await confirmBox(t('Turn off all offers? Customers will no longer see them.'), t('Turn off all'), true)) { await busy(e.target, async () => { await api('b/' + code() + '/offers/', 'DELETE'); await loadOffers(); }); } } }, t('Turn off all'));
+    const currentHeader = h('div.row.between.wrap', h('h3', t('Current offers')), removeAll);
+    const rows = [];
+    const newItem = () => ({ name: inp({ maxlength: 120, ph: 'Item name' }), price: inp({ type: 'number', min: '0.01', step: '0.01', ph: 'Price (₹)' }), offerPrice: inp({ type: 'number', min: '0.01', step: '0.01', ph: 'Offer price (₹)' }), image: h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp' }) });
+    const drawProducts = () => {
+      products.replaceChildren(...rows.map((row, index) => h('div.offer-product.stack.s',
+        field('Item name', row.name),
+        h('div.g2', field('Price (₹)', row.price), type.value === 'fixed_price' ? field('Offer price (₹)', row.offerPrice) : null),
+        field('Image', row.image),
+        rows.length > 1 ? h('button.btn.ghost.sm', { onclick: () => { rows.splice(index, 1); drawProducts(); } }, t('Remove item')) : null)));
     };
-    await draw();
-    /* win-back gift: a real, short-lived reward code for people who stopped coming. Far stronger than a message alone. */
-    let gseg = 'lapsed', gdays = 7;
-    const gtitle = inp({ maxlength: 120, ph: 'e.g. Free cookie with any drink' }), gtext = inp({ maxlength: 100, ph: 'We miss you! A gift is waiting for you.' });
-    const gInfo = h('p.muted'), gChips = h('div'), gDays = h('div.chips');
-    const IDEAS = ['Free cookie with any drink', 'Free chai on your next visit', '10% off your next bill', 'Free delivery this week'];
-    const gBtn = h('button.btn.lg.gold', { onclick: () => busy(gBtn, async () => {
-      if (!gtitle.value.trim()) throw new Error(t('Name the gift, for example: Free cookie.'));
-      const r = await api('b/' + code() + '/winback/', 'POST', { segment: gseg, title: gtitle.value, expiry_days: gdays, text: gtext.value });
-      toast(t('Gift sent to {n} customers', { n: r.sent })); gtitle.value = ''; gtext.value = ''; drawG();
-    }) }, '🎁 ' + t('Send gift'));
-    const drawG = async () => {
-      gChips.replaceChildren(h('div.chips', [['at_risk', 'Slipping away'], ['lapsed', 'Lapsed'], ['new', 'New'], ['regular', 'Regular']].map(([k, l]) => h('button.chip', { 'aria-pressed': String(k === gseg), onclick: () => { gseg = k; drawG(); } }, t(l)))));
-      gDays.replaceChildren(...[3, 7, 14, 30].map(d => h('button.chip', { 'aria-pressed': String(d === gdays), onclick: () => { gdays = d; drawG(); } }, t('{n} days', { n: d }))));
-      try { const r = await api('b/' + code() + '/winback/?segment=' + gseg); gInfo.textContent = t('{n} customers will get a gift code (only those who agreed to offers).', { n: r.audience }); gBtn.disabled = !r.audience; } catch (e) { gInfo.textContent = e.message; }
+    const drawType = () => {
+      discountField.replaceChildren(type.value === 'percent_off' ? field('Discount (%)', discount) : null);
+      drawProducts();
     };
-    await drawG();
-    const giftCard = h('div.card.stack', h('div', h('h3', '🎁 ' + t('Win-back gift')), h('p.muted.small', t('Give people who stopped visiting a real reward code that expires soon. They get a notification and show the code at the counter.'))),
-      gChips, h('div.chips', IDEAS.map(i => h('button.chip', { onclick: () => { gtitle.value = t(i); } }, t(i)))),
-      field('Gift', gtitle), field('Message (optional)', gtext), h('div.field', h('span', t('Valid for')), gDays), gInfo, gBtn);
-    return h('div.stack.l', { style: 'max-width:680px' }, h('div', h('h1', t('Bring customers back')), h('p.muted', t('Send a gift or a message to customers who agreed to receive offers.'))), giftCard,
-      h('div.card.stack', h('h3', '💬 ' + t('Send a message')), h('small.muted', t('Who should get it?')), chipsBox, info, field('Message', text), h('div.row.between', count, h('button.btn.ghost.sm', { onclick: () => { text.value = t(SAMPLES[seg]); text.dispatchEvent(new Event('input')); } }, t('Use a sample'))), go),
-      h('p.small.muted', t('To protect customers, each audience can get one offer a day and you can send up to 3 a day.')));
+    type.addEventListener('change', drawType);
+    rows.push(newItem());
+    drawType();
+    const loadOffers = async () => {
+      const offers = await api('b/' + code() + '/offers/');
+      removeAll.hidden = !offers.some(offer => offer.active);
+      offerList.replaceChildren(...(offers.length ? offers.map(offer => h('div.card.stack.s',
+        h('div.row.between.wrap', h('b', offer.offer_type === 'percent_off' ? offer.value + '% off' : offer.offer_type === 'fixed_price' ? t('Fixed price') : t('Buy 1 get 1')),
+          h('div.row.wrap', h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => { await api('b/' + code() + '/offers/' + offer.id + '/', 'PATCH', { active: !offer.active }); await loadOffers(); }) }, t(offer.active ? 'Turn off' : 'Turn on')),
+            h('button.btn.danger.sm', { onclick: async e => { if (await confirmBox(t('Delete this offer permanently? Customers will no longer see it.'), t('Delete offer'), true)) { await busy(e.target, async () => { await api('b/' + code() + '/offers/' + offer.id + '/', 'DELETE'); await loadOffers(); }); } } }, t('Delete')),
+            offer.active ? null : h('small.muted', t('Hidden from customers')))),
+        offer.items.map(item => {
+          const price = Number(item.price);
+          const current = offer.offer_type === 'fixed_price' ? Number(item.offer_price) :
+            offer.offer_type === 'percent_off' ? price * (1 - Number(offer.value) / 100) : null;
+          return h('div.li', item.image ? h('img.offer-thumb', { src: item.image, alt: item.name }) : null,
+            h('div.grow', h('b', item.name), offer.offer_type === 'bogo'
+              ? h('div.small.muted', t('Price: {p}', { p: FX.rupee(price) }))
+              : h('div.offer-price', h('b', FX.rupee(current)), h('del', FX.rupee(price)))));
+        }))) : [empty('No offers yet', 'Add an offer to show it to everyone on your shop page.')]));
+    };
+    const save = h('button.btn.lg.gold.block', { onclick: e => busy(e.target, async () => {
+      const items = rows.map(row => ({ name: row.name.value.trim(), price: row.price.value, offer_price: type.value === 'fixed_price' ? row.offerPrice.value : 0 }));
+      if (items.some(item => !item.name || !item.price || (type.value === 'fixed_price' && !item.offer_price))) throw new Error(t('Enter a name and price for each item.'));
+      const form = new FormData();
+      form.append('offer_type', type.value);
+      form.append('value', type.value === 'percent_off' ? discount.value : 0);
+      form.append('items', JSON.stringify(items));
+      rows.forEach((row, index) => { if (row.image.files[0]) form.append('image_' + index, row.image.files[0]); });
+      await api('b/' + code() + '/offers/', 'POST', form);
+      rows.splice(0, rows.length, newItem());
+      drawType();
+      await loadOffers();
+      toast(t('Offer added. It is now visible to everyone.'));
+    }) }, t('Add offer'));
+    await loadOffers();
+    return h('div.stack.l', { style: 'max-width:680px' },
+      h('div', h('h1', t('Shop offers')), h('p.muted', t('These offers are visible to everyone on your shop page, separate from rewards.'))),
+      h('div.card.stack', h('h3', t('Create an offer')), field('Offer type', type), discountField,
+        h('div.row.between', h('b', t('Items')), h('button.btn.ghost.sm', { onclick: () => { if (rows.length >= 20) return toast(t('Add up to 20 items per offer.')); rows.push(newItem()); drawProducts(); } }, '+ ' + t('Add item'))),
+        products, save),
+      h('div.card.stack', currentHeader, offerList));
   };
 
   /* ---------- insights ---------- */
@@ -113,12 +142,12 @@
     /* call to action */
     const cy = qy + qs + 70; x.font = '800 46px ' + FONT; const label = hi ? 'स्कैन करें और इनाम पाएं' : 'Scan to join rewards', pw = Math.min(900, x.measureText(label).width + 120);
     x.fillStyle = brand; rr(W / 2 - pw / 2, cy, pw, 100, 50); x.fill(); x.fillStyle = onBrand; x.fillText(label, W / 2, cy + 66);
-    x.fillStyle = '#6b6485'; x.font = '500 30px ' + FONT; x.fillText(hi ? 'Firaao पर स्टैम्प और रिवॉर्ड पाएं' : 'Collect stamps and rewards on Firaao', W / 2, cy + 160);
+    x.fillStyle = '#6b6485'; x.font = '500 30px ' + FONT; x.fillText(hi ? 'OFFLet पर स्टैम्प और रिवॉर्ड पाएं' : 'Collect stamps and rewards on OFFLet', W / 2, cy + 160);
     /* shop details, as many lines as fit */
     const info = [b.address, [b.hours, b.phone].filter(Boolean).join('  ·  '), b.pay_upi_id ? 'UPI: ' + b.pay_upi_id : ''].filter(Boolean);
     x.fillStyle = '#4a4466'; x.font = '500 28px ' + FONT; let iy = cy + 222, left = Math.floor((1496 - iy) / 38);
     for (const row of info) { for (const l of wrapText(x, row, 880, Math.min(2, left))) { if (left <= 0) break; x.fillText(l, W / 2, iy); iy += 38; left--; } }
-    x.globalAlpha = .85; x.fillStyle = onBrand; x.font = '700 24px ' + FONT; x.fillText('Powered by Firaao', W / 2, H - 20); x.globalAlpha = 1;
+    x.globalAlpha = .85; x.fillStyle = onBrand; x.font = '700 24px ' + FONT; x.fillText('Powered by OFFLet', W / 2, H - 20); x.globalAlpha = 1;
     return c;
   }
   function qrCard() {
@@ -170,26 +199,50 @@
     const b = S.biz, url = location.origin + '/b/' + b.shop_code + '/';
     const f = { name: inp({ value: b.name, maxlength: 120 }), tagline: inp({ value: b.tagline, maxlength: 140 }), about: h('textarea', { maxlength: 600, value: b.about }), address: inp({ value: b.address }), hours: inp({ value: b.hours, ph: 'e.g. Mon-Sat 9am-9pm' }),
       phone: inp({ type: 'tel', value: b.phone }), whatsapp: inp({ type: 'tel', value: b.whatsapp, ph: 'with country code, e.g. 919876543210' }), maps_url: inp({ type: 'url', value: b.maps_url, ph: 'https://maps.google.com/...' }), pay_upi_id: inp({ value: b.pay_upi_id || '' }),
+      instagram_url: inp({ type: 'url', value: b.instagram_url, ph: 'https://instagram.com/yourshop' }), facebook_url: inp({ type: 'url', value: b.facebook_url, ph: 'https://facebook.com/yourshop' }),
+      youtube_url: inp({ type: 'url', value: b.youtube_url, ph: 'https://youtube.com/@yourshop' }), tiktok_url: inp({ type: 'url', value: b.tiktok_url, ph: 'https://tiktok.com/@yourshop' }),
+      x_url: inp({ type: 'url', value: b.x_url, ph: 'https://x.com/yourshop' }),
       brand_color: h('input', { type: 'color', value: b.brand_color || '#5e35b1' }), language: sel([['en', 'English'], ['hi', 'हिन्दी']], b.language) };
     const logo = h('input', { type: 'file', accept: 'image/*' });
     const rules = { approval_mode: sel([['manual', 'I approve each purchase'], ['auto', 'Approve automatically']], b.approval_mode), cooldown_minutes: inp({ type: 'number', min: '0', value: b.cooldown_minutes }), daily_cap: inp({ type: 'number', min: '1', value: b.daily_cap }), max_distance_m: inp({ type: 'number', min: '0', value: b.max_distance_m || 0 }), require_bill_photo: h('input', { type: 'checkbox', checked: b.require_bill_photo }) };
-    let pos = null;
+    const hasLocation = b.lat != null && b.lng != null;
+    const locationStatus = h('p.small.muted', hasLocation
+      ? t('Shop location is set. Customers can get directions. Detect again to update it.')
+      : t('No shop location is set. Detect it from the device used at your shop.'));
+    const locationMap = hasLocation
+      ? h('a.btn.ghost.sm', { href: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(b.lat + ',' + b.lng), target: '_blank', rel: 'noopener' }, t('View saved location'))
+      : null;
+    const detectLocation = h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => {
+      locationStatus.textContent = t('Getting device location…');
+      try {
+        const position = await FX.locate();
+        await api('b/' + code() + '/settings/', 'PATCH', { lat: position.coords.latitude, lng: position.coords.longitude });
+        await FX.reloadShops();
+        toast(t('Shop location saved.'));
+        FX.render(true);
+      } catch (error) {
+        locationStatus.textContent = error.message;
+      }
+    }) }, t('Detect and save location'));
     const save = (fields, extra) => async e => busy(e.target, async () => {
       let body;
       if (extra && extra.logo && extra.logo.files[0]) { body = new FormData(); body.append('logo', extra.logo.files[0]); for (const [k, v] of Object.entries(fields)) body.append(k, v.type === 'checkbox' ? v.checked : v.value); }
-      else { body = {}; for (const [k, v] of Object.entries(fields)) body[k] = v.type === 'checkbox' ? v.checked : v.value; if (pos && extra && extra.geo) { body.lat = pos.latitude; body.lng = pos.longitude; } }
-      if (body instanceof FormData && pos && extra.geo) { body.append('lat', pos.latitude); body.append('lng', pos.longitude); }
+      else { body = {}; for (const [k, v] of Object.entries(fields)) body[k] = v.type === 'checkbox' ? v.checked : v.value; }
       await api('b/' + code() + '/settings/', 'PATCH', body); await FX.reloadShops(); toast(t('Saved')); FX.render(true);
     });
     return h('div.stack.l', { style: 'max-width:820px;min-width:0' }, h('h1', t('My shop')),
       qrCard(),
       h('div.card.stack', h('h3', t('Shop page')), h('div.g2', field('Shop name', f.name), field('Tagline', f.tagline)), field('About', f.about), h('div.g2', field('Address', f.address), field('Opening hours', f.hours)),
+        h('div.row.wrap', detectLocation, locationMap), locationStatus,
         h('div.g2', field('Phone', f.phone), field('WhatsApp', f.whatsapp)), field('Google Maps link', f.maps_url), h('div.g2', field('UPI ID', f.pay_upi_id), field('Language', f.language)),
+        h('details.card', h('summary', t('Social media accounts')), h('p.small.muted', t('Add public profile links. Customers see small follow icons on your shop page.')),
+          h('div.g2', field('Instagram profile URL', f.instagram_url), field('Facebook profile URL', f.facebook_url)),
+          h('div.g2', field('YouTube profile URL', f.youtube_url), field('TikTok profile URL', f.tiktok_url)),
+          field('X profile URL', f.x_url)),
         h('div.g2', field('Brand colour', f.brand_color), field('Logo', logo)), h('button.btn', { style: 'justify-self:start', onclick: save(f, { logo }) }, t('Save shop page'))),
       h('div.card.stack', h('h3', t('Purchase rules')), field('Approval', rules.approval_mode), h('div.g2', field('Minutes between purchases', rules.cooldown_minutes), field('Purchases per day', rules.daily_cap)),
         h('label.check', rules.require_bill_photo, h('span', t('Ask customers for a bill photo'))), field('Shop radius (metres, 0 = off)', rules.max_distance_m, 'Purchases from farther away are flagged for your review.'),
-        h('button.btn.ghost.sm', { style: 'justify-self:start', onclick: async e => { pos = await FX.getPos(); toast(pos ? t('Shop location captured. Press Save.') : t('Location unavailable.'), !pos); } }, t('Use my current location as the shop location')),
-        h('button.btn', { style: 'justify-self:start', onclick: save(rules, { geo: true }) }, t('Save rules'))),
+        h('button.btn', { style: 'justify-self:start', onclick: save(rules) }, t('Save rules'))),
       servicesCard(b), teamCard(),
       h('div.card.stack', h('h3', t('Danger zone')), h('p.muted.small', t('Making a new QR code stops the old printed QR from working.')),
         h('button.btn.danger', { style: 'justify-self:start', onclick: async () => { if (await confirmBox(t('Make a new QR code? Printed QR codes will stop working.'), t('Make new QR'), true)) { const r = await api('b/' + code() + '/regenerate-qr/', 'POST'); localStorage.fx_biz = r.shop_code; await FX.reloadShops(); FX.render(); } } }, t('Make a new QR code'))));
@@ -203,14 +256,14 @@
     const checkout = k => async e => busy(e.target, async () => {
       const order = await api('billing/order/', 'POST', { plan: k }); await loadRz();
       const widget = new window.Razorpay({ key: order.key, order_id: order.order_id, amount: order.amount,
-        currency: order.currency, name: 'Firaao', description: plan(k).label, theme: { color: '#5e35b1' },
+        currency: order.currency, name: 'OFFLet', description: plan(k).label, theme: { color: '#5e35b1' },
         handler: async resp => { try { await api('billing/verify/', 'POST', resp); toast(t('Payment received. Thank you!')); await FX.loadSub(); FX.render(); } catch (x) { toast(x.message, true); } } });
       widget.on('payment.failed', resp => toast(resp.error?.description || t('Payment failed. Please try again.'), true));
       widget.open();
     });
     const subscribe = k => async e => busy(e.target, async () => {
       const r = await api('billing/autopay/', 'POST', { plan: k }); await loadRz();
-      new window.Razorpay({ key: r.key, subscription_id: r.subscription_id, name: 'Firaao', description: plan(k).label, theme: { color: '#5e35b1' },
+      new window.Razorpay({ key: r.key, subscription_id: r.subscription_id, name: 'OFFLet', description: plan(k).label, theme: { color: '#5e35b1' },
         handler: async resp => { try { await api('billing/autopay/verify/', 'POST', { razorpay_payment_id: resp.razorpay_payment_id, razorpay_subscription_id: resp.razorpay_subscription_id, razorpay_signature: resp.razorpay_signature }); toast(t('Payment received. Thank you!')); await FX.loadSub(); FX.render(); } catch (x) { toast(x.message, true); } } }).open();
     });
     const payUpi = k => {

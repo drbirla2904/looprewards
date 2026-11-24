@@ -306,7 +306,9 @@ def shop_state(profile):
         "tasks": tasks, "best": best,
         "rewards": [{"title": g.reward.title, "type": g.reward.type, "value": str(g.reward.value),
                      "terms": g.reward.terms, "code": g.code, "status": g.status, "expires_at": g.expires_at,
-                     "trigger": g.reward.trigger} for g in grants],
+                     "trigger": g.reward.trigger, "item_name": g.reward.item_name,
+                     "original_price": str(g.reward.original_price), "offer_price": str(g.reward.offer_price),
+                     "image": g.reward.image.url if g.reward.image else ""} for g in grants],
         "active_rewards": len(active), "next_expiry": active[0].expires_at if active else None,
         "boosts_now": [boost_dict(b) for b in active_boosts(biz)],
     }

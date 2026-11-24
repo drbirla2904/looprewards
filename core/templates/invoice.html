@@ -9,7 +9,7 @@ body{margin:0;background:#f5f2fa;color:#1c1530;font:15px/1.5 Inter,-apple-system
 .sheet{position:relative;max-width:760px;margin:24px auto;background:#fff;border-radius:22px;box-shadow:0 20px 50px -24px #3f238066,0 4px 14px #2a145d14;overflow:hidden}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:28px 32px;color:#fff;background:linear-gradient(135deg,#7a4bd1,#3f2380)}
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;letter-spacing:-.02em}
-.mark{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:#fff;color:#5e35b1;font-weight:800}
+.mark{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:url("/icon.svg") center/cover no-repeat;color:transparent;font-size:0}
 .head h1{margin:0;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;text-align:right;opacity:.85}
 .head .no{white-space:nowrap;font-size:20px;font-weight:800;letter-spacing:-.02em;text-align:right;margin-top:2px}
 .body{padding:28px 32px 30px}
@@ -30,7 +30,7 @@ td{padding:14px 0;border-bottom:1px solid #eee9f6}
 @media print{body{background:#fff}.sheet{margin:0;box-shadow:none;border-radius:0}.btn{display:none}.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head><body>
 <div class="sheet">
-<div class="head"><div class="brand"><span class="mark">↻</span>Firaao</div><div><h1>Tax Invoice</h1><div class="no">{{ p.invoice_no }}</div></div></div>
+<div class="head"><div class="brand"><span class="mark">↻</span>OFFLet</div><div><h1>Tax Invoice</h1><div class="no">{{ p.invoice_no }}</div></div></div>
 <div class="stamp">PAID</div>
 <div class="body">
 <div class="cols">
@@ -38,12 +38,12 @@ td{padding:14px 0;border-bottom:1px solid #eee9f6}
 <div><div class="lbl">Billed to</div><p><b>{{ p.owner.first_name }}</b><br>{{ p.owner.username }}<br>Date: {{ p.created_at|date:"d M Y" }}</p></div>
 </div>
 <table><tr><th>Description</th><th class="r">Amount (₹)</th></tr>
-<tr><td>Firaao {{ p.plan|title }} subscription</td><td class="r">{{ base }}</td></tr>
+<tr><td>OFFLet {{ p.plan|title }} subscription</td><td class="r">{{ base }}</td></tr>
 <tr><td>GST @ {{ rate }}%</td><td class="r">{{ gst }}</td></tr>
 <tr class="total"><td><b>Total paid</b></td><td class="r amt">₹{{ gross }}</td></tr></table>
 <div class="note">Payment ref: {{ p.payment_id|default:p.utr }}. Amount is inclusive of GST. This is a computer-generated invoice.</div>
 </div>
-<div class="foot">Thank you for choosing Firaao.</div>
+<div class="foot">Thank you for choosing OFFLet.</div>
 </div>
 <button class="btn" onclick="print()">Print or save as PDF</button>
 </body></html>

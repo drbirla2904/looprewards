@@ -1,4 +1,4 @@
-/* Firaao v2 owner screens, part 1: onboarding, Today (action queue), Customers CRM, Rewards studio. Also staff queue. */
+/* OFFLet v2 owner screens, part 1: onboarding, Today (action queue), Customers CRM, Rewards studio. Also staff queue. */
 (function (FX) {
   'use strict';
   const { h, api, S, field, inp, sel, pill, empty, kpi, toast, modal, busy, confirmBox } = FX;
@@ -14,12 +14,25 @@
     const types = await api('blueprints/');
     let pick = 'cafe', step = 1;
     const name = inp({ maxlength: 120, ph: 'Business name' }), upi = inp({ ph: 'yourname@upi (optional)' }), addr = inp({ ph: 'Area or address (optional)' });
+    let shopLocation = null;
+    const locationStatus = h('p.small.muted', t('No shop location is set. You can detect it now or later from My shop.'));
+    const detectLocation = h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => {
+      locationStatus.textContent = t('Getting device location…');
+      try {
+        const position = await FX.locate();
+        shopLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
+        locationStatus.textContent = t('Location detected (±{accuracy} m). It will be attached when you launch.', { accuracy: Math.round(position.coords.accuracy) });
+      } catch (error) {
+        locationStatus.textContent = error.message;
+      }
+    }) }, t('Detect shop location'));
     const box = h('div.stack.l', { style: 'max-width:720px;margin:0 auto' });
     const draw = () => {
       const bp = types.find(x => x.key === pick), err = h('div.err');
       box.replaceChildren(h('div.steps', [1, 2].map(i => h('i' + (i <= step ? '.on' : '')))),
         step === 1 ? h('div.stack.l', h('div', h('h1', t('Set up your rewards in a minute')), h('p.muted', t('Tell us about your business. We create a ready-made program you can edit later.'))),
-          h('div.card.stack', field('Business name', name), field('UPI ID', upi, 'Customers can pay you directly.'), field('Address', addr)),
+          h('div.card.stack', field('Business name', name), field('UPI ID', upi, 'Customers can pay you directly.'), field('Address', addr),
+            h('div.row.wrap', detectLocation), locationStatus),
           h('div.stack', h('h3', t('What kind of business is it?')), h('div.g2', { role: 'radiogroup' }, types.map(x => h('button.blueprint', { role: 'radio', 'aria-checked': String(x.key === pick), onclick: () => { pick = x.key; draw(); } },
             h('span.em', x.emoji), h('b', FX.lang === 'hi' ? x.hi : x.label), h('small.muted', x.tasks.map(k => k.reward).join(', ')))))),
           err, h('button.btn.lg', { onclick: () => { if (!name.value.trim()) { err.textContent = t('Enter your business name.'); return; } step = 2; draw(); } }, t('Next'))) :
@@ -32,7 +45,9 @@
             err, h('div.row', h('button.btn.ghost', { onclick: () => { step = 1; draw(); } }, t('Back')),
               h('button.btn.lg.grow', { onclick: e => busy(e.target, async () => {
                 try {
-                  const b = await api('businesses/', 'POST', { name: name.value.trim(), category: pick, pay_upi_id: upi.value.trim() || undefined, address: addr.value.trim(), language: FX.lang });
+                  const business = { name: name.value.trim(), category: pick, pay_upi_id: upi.value.trim() || undefined, address: addr.value.trim(), language: FX.lang };
+                  if (shopLocation) { business.lat = shopLocation.lat; business.lng = shopLocation.lng; }
+                  const b = await api('businesses/', 'POST', business);
                   await api('b/' + b.shop_code + '/blueprint/', 'POST', { key: pick });
                   localStorage.fx_biz = b.shop_code; await FX.reloadShops(); await FX.loadSub().catch(() => {});
                   toast(t('Your program is live! Print your QR code next.')); FX.go('shop');
@@ -92,7 +107,7 @@
   FX.bookingQueue = bookingQueue;
   const refresh = () => { FX.render(true); };
   const TIPS = {
-    winback: (x) => [t('{n} customers have not visited in over 30 days.', { n: x.n }), t('Send a win-back offer'), () => FX.go('campaigns/at_risk')],
+    winback: (x) => [t('{n} customers have not visited in over 30 days.', { n: x.n }), t('Manage shop offers'), () => FX.go('campaigns')],
     boost: (x) => [t('{d} is your quietest day. Double stamps can fill it.', { d: wd(x.weekday) }), t('Create a boost'), () => FX.go('rewards')],
     reviews: (x) => [t('Your average rating is {a}. Read recent feedback.', { a: x.avg }), t('See feedback'), () => FX.go('insights')],
     referral: () => [t('Turn happy customers into your best marketing: add a referral reward.'), t('Set up referrals'), () => FX.go('rewards')],
@@ -118,7 +133,7 @@
     const code0 = code(), printed = localStorage['fx_printed_' + code0] === '1', b = S.biz || {};
     const items = [
       ['🎨', 'Add your logo and brand colour', 'Customers see this on their stamp card.', !!b.logo_url, 'shop'],
-      ['📍', 'Set your shop location', 'Turns on the “far from shop” check.', !!(b.lat && b.lng), 'shop'],
+      ['📍', 'Set your shop location', 'Turns on the “far from shop” check.', b.lat != null && b.lng != null, 'shop'],
       ['🖨️', 'Print your counter QR card', 'Customers scan it to join in 10 seconds.', printed, 'shop', () => { localStorage['fx_printed_' + code0] = '1'; }],
       ['👋', 'Get your first customer', 'Share your shop link on WhatsApp.', k.customers > 0, 'shop'],
       ['✅', 'Approve a first purchase', 'Your approval queue lives on this screen.', k.visits_in_period > 0, ''],
@@ -137,7 +152,7 @@
     return h('div.stack.l', subBanner(),
       h('div.hd', h('div', h('h1', S.biz.name), h('p.muted', t('What needs you right now'))), h('div.row', h('a.btn.ghost', { href: '#/counter' }, t('Counter code')))),
       FX.tiles([['🎟️', 'Redeem', () => { const r = document.getElementById('redeem'); if (r) { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); const i = r.querySelector('input'); if (i) i.focus(); } }],
-        ['👥', 'Customers', '#/customers'], ['🎁', 'Rewards', '#/rewards'], ['📣', 'Offers', '#/campaigns'], ['📊', 'Insights', '#/insights'], ['🖨️', 'QR card', '#/shop'], ['💰', 'Refer & Earn', '#/refer'], ['🔔', 'Alerts', FX.inbox, S.unread || null]]),
+        ['👥', 'Customers', '#/customers'], ['🎁', 'Rewards', '#/rewards'], ['🎡', 'Spin & Win', '#/spin'], ['📣', 'Offers', '#/campaigns'], ['📊', 'Insights', '#/insights'], ['🖨️', 'QR card', '#/shop'], ['💰', 'Refer & Earn', '#/refer'], ['🔔', 'Alerts', FX.inbox, S.unread || null]]),
       h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null),
         pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')),
       reqs.length || todays.length ? h('div.card', h('h3', t('Bookings')), bookingQueue(reqs.concat(todays), refresh)) : null,
@@ -151,7 +166,8 @@
   /* staff: same queue, nothing else */
   FX.routes.staff[''] = async function () {
     const [pend] = await queueData(); S.pending = pend.length;
-    return h('div.stack.l', h('h1', S.biz ? S.biz.name : ''), h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null), pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')), redeemBox());
+    const followRequests = await socialFollowRequests();
+    return h('div.stack.l', h('h1', S.biz ? S.biz.name : ''), h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null), pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')), followRequests, redeemBox());
   };
 
   /* ---------- Customers CRM ---------- */
@@ -181,8 +197,7 @@
       search.addEventListener('change', () => { q = search.value.trim(); load(); });
       box.replaceChildren(
         h('div.chips', SEG.map(([k, l]) => h('button.chip', { 'aria-pressed': String(k === seg), onclick: () => { seg = k; load(); } }, t(l), h('b', k === 'all' ? Object.values(d.segments).reduce((a, b) => a + b, 0) : d.segments[k])))),
-        h('div.row.wrap', h('div.grow', search), FX.sel([['recent', 'Recently active'], ['visits', 'Most visits'], ['spend', 'Highest spend']], sort, { onchange: e => { sort = e.target.value; load(); }, style: 'width:auto' }),
-          seg !== 'all' && seg !== 'never' ? h('button.btn.soft', { onclick: () => FX.go('campaigns/' + seg) }, t('Send offer')) : null),
+        h('div.row.wrap', h('div.grow', search), FX.sel([['recent', 'Recently active'], ['visits', 'Most visits'], ['spend', 'Highest spend']], sort, { onchange: e => { sort = e.target.value; load(); }, style: 'width:auto' })),
         h('div.card', d.results.length ? d.results.map(c => h('div.li.click', { tabindex: 0, onclick: () => customerDrawer(c.id, load), onkeydown: e => { if (e.key === 'Enter') customerDrawer(c.id, load); } },
           FX.avatar(c.name, c.image), h('div.grow', h('b', c.name), h('div.small.muted', t('{n} visits', { n: c.visits }) + ' · ' + FX.ago(c.last_visit))),
           c.active_rewards ? pill('🎁 ' + c.active_rewards, 'ok') : null, FX.tierPill(c.tier), c.status === 'blocked' ? pill(t('Blocked'), 'bad') : null)) :
@@ -194,7 +209,7 @@
   };
 
   /* ---------- Rewards studio ---------- */
-  const REWARD_TYPES = [['free_item', 'Free item'], ['percent_off', 'Percent off'], ['flat_off', 'Flat amount off'], ['gift', 'Gift'], ['custom', 'Other']];
+  const REWARD_TYPES = [['free_item', 'Free item'], ['percent_off', 'Percent off'], ['flat_off', 'Flat amount off'], ['gift', 'Gift'], ['cashback', 'Cashback'], ['special_offer', 'Special offer'], ['custom', 'Other']];
   const TASK_TYPES = [['visit', 'Number of visits'], ['count', 'Number of items'], ['amount', 'Total spend (₹)']];
   function programBuilder(onDone) {
     const title = inp({ value: 'Loyalty Rewards', maxlength: 120 });
@@ -304,7 +319,7 @@
     const days = sel([[7, '7 days'], [15, '15 days'], [30, '30 days'], [60, '60 days'], [90, '90 days']].map(([v, l]) => [v, t(l)]), 30), err = h('div.err', { role: 'alert' });
     const tplBox = h('div.tplrow'), nChips = h('div.chips'), giveBox = h('div.chips'), ideas = h('div.chips'), prev = h('div.focus'), nLabel = h('span'), gvalField = h('div.field', h('span', t('Amount')), gval);
     const itemField = h('div.field', h('span', t('What do they buy? (optional)')), item);
-    const autoTitle = () => { if (touched) return; give.value = gtype === 'percent_off' ? t('{v}% off your next bill', { v: gval.value || 0 }) : gtype === 'flat_off' ? t('₹{v} off your next bill', { v: gval.value || 0 }) : give.value; };
+    const autoTitle = () => { if (touched) return; give.value = gtype === 'percent_off' ? t('{v}% off your next bill', { v: gval.value || 0 }) : gtype === 'flat_off' ? t('₹{v} off your next bill', { v: gval.value || 0 }) : gtype === 'cashback' ? t('₹{v} cashback', { v: gval.value || 0 }) : give.value; };
     const sentence = () => { const g = give.value.trim() || t('your reward'), nn = n.value || 0;
       return tpl === 'stamps' ? t('Customers buy {n} {i} and get: {g}', { n: nn, i: item.value.trim() || t('times'), g })
         : tpl === 'spend' ? t('Customers spend {a} in total and get: {g}', { a: FX.rupee(nn), g }) : t('Customers visit {n} times and get: {g}', { n: nn, g }); };
@@ -316,8 +331,9 @@
       nLabel.textContent = tpl === 'stamps' ? t('How many purchases?') : tpl === 'spend' ? t('How much do they spend (₹)?') : t('How many visits?');
       nChips.replaceChildren(...QUICK_TPL[tpl][2].map(v => h('button.chip', { type: 'button', 'aria-pressed': String(String(v) === String(n.value)), onclick: () => { n.value = v; draw(); } }, tpl === 'spend' ? FX.rupee(v) : '×' + v)));
       itemField.hidden = tpl !== 'stamps';
-      giveBox.replaceChildren(...[['free_item', '🎁', 'A free item'], ['percent_off', '％', 'Percent off'], ['flat_off', '₹', 'Money off']].map(([k, em, l]) => h('button.chip', { type: 'button', 'aria-pressed': String(k === gtype), onclick: () => { gtype = k; touched = false; if (k === 'free_item') give.value = ''; autoTitle(); draw(); } }, em + ' ' + t(l))));
-      gvalField.hidden = gtype === 'free_item'; gvalField.querySelector('span').textContent = gtype === 'percent_off' ? t('Percent off (1 to 100)') : t('Rupees off');
+      giveBox.replaceChildren(...[['free_item', '🎁', 'A free item'], ['percent_off', '％', 'Percent off'], ['flat_off', '₹', 'Money off'],
+        ['cashback', '↩️', 'Cashback'], ['special_offer', '✨', 'Special offer']].map(([k, em, l]) => h('button.chip', { type: 'button', 'aria-pressed': String(k === gtype), onclick: () => { gtype = k; touched = false; if (k === 'free_item') give.value = ''; autoTitle(); draw(); } }, em + ' ' + t(l))));
+      gvalField.hidden = gtype === 'free_item'; gvalField.querySelector('span').textContent = gtype === 'percent_off' ? t('Percent off (1 to 100)') : gtype === 'cashback' ? t('Cashback amount') : gtype === 'special_offer' ? t('Amount (optional)') : t('Rupees off');
       ideas.replaceChildren(...(gtype === 'free_item' ? (GIVE_IDEAS[cat] || GIVE_IDEAS.other).map(x => h('button.chip', { type: 'button', onclick: () => { give.value = x; touched = true; drawPrev(); } }, t(x))) : []));
       drawPrev();
     };
@@ -375,15 +391,41 @@
           await api(b ? 'boosts/' + b.id + '/' : 'b/' + code() + '/boosts/', b ? 'PATCH' : 'POST', body); m.close(); onDone(); } catch (x) { err.textContent = x.message; }
       }) }, t('Save boost'))));
   }
+  async function socialFollowRequests() {
+    const data = await api('b/' + code() + '/social-follow/claims/');
+    if (!data.enabled) return null;
+    const review = (id, action) => async e => {
+      if (action === 'approve' && !await confirmBox(t('Confirm you saw this customer follow a shop profile?'), t('Approve reward'))) return;
+      await busy(e.target, async () => {
+        await api('b/' + code() + '/social-follow/claims/' + id + '/', 'POST', { action });
+        toast(t(action === 'approve' ? 'Reward approved and added to the customer wallet.' : 'Follow request rejected.'));
+        FX.render(true);
+      });
+    };
+    return h('div.card.stack', h('div.hd', h('h3', t('Social follow requests')), data.claims.length ? pill(data.claims.length, 'warn') : null),
+      data.reward_configured ? h('p.small.muted', t('Check the customer follows a listed profile before approving.')) :
+        h('p.small.muted', t('Configure the social follow reward before approving requests.')),
+      data.claims.length ? data.claims.map(claim => h('div.li',
+        h('div.grow', h('b', claim.name), h('div.small.muted', t('Mobile ending in {digits} · {time}', { digits: claim.mobile_last4, time: FX.fmtDT(claim.requested_at) }))),
+        h('div.row.wrap', data.reward_configured ? h('button.btn.sm', { onclick: review(claim.id, 'approve') }, t('Approve and issue reward')) : null,
+          h('button.btn.danger.sm', { onclick: review(claim.id, 'reject') }, t('Reject'))))) :
+        empty('No social follow requests', 'Customer requests to verify a social follow appear here.'));
+  }
+
   function perkEditor(trig, cur, onDone) {
     const title = inp({ value: cur ? cur.title : '', maxlength: 120, ph: 'e.g. Free cookie' }), type = sel(REWARD_TYPES, cur ? cur.type : 'gift'), val = inp({ type: 'number', min: '0', value: cur ? cur.value : 0 }), days = inp({ type: 'number', min: '1', max: '365', value: cur ? cur.expiry_days : 30 });
-    const m = modal(t(trig === 'welcome' ? 'Welcome gift' : 'Referral reward'), h('div.stack', h('p.muted', t(trig === 'welcome' ? 'Given after a new customer\'s first approved purchase.' : 'Given to the customer who invited a friend, after the friend\'s first purchase.')),
+    const label = trig === 'welcome' ? 'Welcome gift' : trig === 'referral' ? 'Referral reward' : 'Social follow reward';
+    const description = trig === 'welcome' ? 'Given after a new customer\'s first approved purchase.' :
+      trig === 'referral' ? 'Given to the customer who invited a friend, after the friend\'s first purchase.' :
+        'Issued once after staff verify a customer follows one of your social profiles.';
+    const m = modal(t(label), h('div.stack', h('p.muted', t(description)),
       field('Reward', title), h('div.g2', field('Type', type), field('Value (₹ or %)', val)), field('Valid for (days)', days),
       h('div.row', cur ? h('button.btn.danger', { onclick: e => busy(e.target, async () => { await api('b/' + code() + '/perks/', 'PUT', { [trig]: null }); m.close(); onDone(); }) }, t('Turn off')) : null,
         h('button.btn.grow', { onclick: e => busy(e.target, async () => { await api('b/' + code() + '/perks/', 'PUT', { [trig]: { title: title.value, type: type.value, value: val.value, expiry_days: days.value } }); m.close(); onDone(); }) }, t('Save')))));
   }
   R.rewards = async function () {
     const [boosts, perks, act] = await Promise.all([api('b/' + code() + '/boosts/'), api('b/' + code() + '/perks/'), api('b/' + code() + '/reward-activity/').catch(() => ({ rewards: [] }))]);
+    const followRequests = await socialFollowRequests();
     const stats = {}; act.rewards.forEach(r => { stats[r.id] = r.stats; });
     const biz = S.biz, done = () => FX.render(true);
     const silver = inp({ type: 'number', min: '0', value: biz.tier_silver_visits }), gold = inp({ type: 'number', min: '0', value: biz.tier_gold_visits }), sp = inp({ value: biz.silver_perk, maxlength: 120, ph: 'e.g. Free size upgrade' }), gp = inp({ value: biz.gold_perk, maxlength: 120, ph: 'e.g. Priority service' });
@@ -395,7 +437,8 @@
           h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => { await api('boosts/' + b.id + '/', 'PATCH', { active: !b.active }); done(); }) }, t(b.active ? 'Pause' : 'Resume')),
           h('button.btn.ghost.sm', { onclick: () => boostEditor(b, done) }, t('Edit')),
           h('button.btn.danger.sm', { onclick: e => busy(e.target, async () => { await api('boosts/' + b.id + '/', 'DELETE'); done(); }) }, t('Delete')))) : empty('No boosts yet'))),
-      h('div.section', h('h2', { style: 'margin-bottom:12px' }, t('Welcome and referral gifts')), h('div.g2', perkCard('welcome', 'Welcome gift', 'Make new customers feel welcome on their first purchase.'), perkCard('referral', 'Referral reward', 'Reward customers who bring friends.'))),
+      followRequests,
+      h('div.section', h('h2', { style: 'margin-bottom:12px' }, t('Welcome, referral and social rewards')), h('div.g2', perkCard('welcome', 'Welcome gift', 'Make new customers feel welcome on their first purchase.'), perkCard('referral', 'Referral reward', 'Reward customers who bring friends.'), perkCard('social', 'Social follow reward', 'Reward customers after staff confirm they follow a social profile.'))),
       h('div.section', h('h2', { style: 'margin-bottom:12px' }, t('Membership tiers')), h('div.card.stack', h('p.muted.small', t('Tiers are based on total visits. Perks are things you honour at the counter.')),
         h('div.g2', field('Silver after (visits)', silver), field('Gold after (visits)', gold)), h('div.g2', field('Silver perk', sp), field('Gold perk', gp)),
         h('button.btn.sm', { style: 'justify-self:start', onclick: e => busy(e.target, async () => { await api('b/' + code() + '/settings/', 'PATCH', { tier_silver_visits: +silver.value, tier_gold_visits: +gold.value, silver_perk: sp.value, gold_perk: gp.value }); await FX.reloadShops(); toast(t('Saved')); }) }, t('Save tiers')))));

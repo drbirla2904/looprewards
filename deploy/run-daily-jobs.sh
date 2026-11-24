@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-cd /srv/firaao/looprewards
-PYTHON=/srv/firaao/looprewards/venv/bin/python
+cd /srv/offlet/offlet
+PYTHON=/srv/offlet/offlet/venv/bin/python
 
 "$PYTHON" manage.py send_reminders
 "$PYTHON" manage.py run_payouts

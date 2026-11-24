@@ -296,8 +296,8 @@ def plan_id(plan):
     if cached and cached.amount == spec["amount"]:
         return cached.rzp_plan_id
     created = _rzp_post("plans", {"period": "monthly" if plan == "monthly" else "yearly", "interval": 1,
-        "item": {"name": f"Firaao {spec['label']}", "amount": spec["amount"], "currency": "INR",
-                 "description": f"Firaao {spec['label']} subscription (GST included)"}})
+        "item": {"name": f"OFFLet {spec['label']}", "amount": spec["amount"], "currency": "INR",
+                 "description": f"OFFLet {spec['label']} subscription (GST included)"}})
     GatewayPlan.objects.update_or_create(plan=plan, defaults={"rzp_plan_id": created["id"], "amount": spec["amount"]})
     return created["id"]
 

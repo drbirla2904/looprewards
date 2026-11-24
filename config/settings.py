@@ -59,11 +59,23 @@ PLANS = {"monthly": {"amount": 29900, "days": 30, "label": "Monthly"},      # pa
          "yearly": {"amount": 299900, "days": 365, "label": "Yearly"}}     # ₹2,999
 RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_ID", ""), env("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", "")
-PLATFORM_UPI_ID, PLATFORM_UPI_NAME = env("PLATFORM_UPI_ID", ""), env("PLATFORM_UPI_NAME", "Firaao")
+PLATFORM_UPI_ID, PLATFORM_UPI_NAME = env("PLATFORM_UPI_ID", ""), env("PLATFORM_UPI_NAME", "OFFLet")
 GST_RATE = int(env("GST_RATE", "18"))  # plan prices are treated as GST-inclusive
 SELLER = {"name": env("SELLER_NAME", "Your Company Name"), "gstin": env("SELLER_GSTIN", ""),
           "address": env("SELLER_ADDRESS", "")}
 NOTIFY_WEBHOOK_URL = env("NOTIFY_WEBHOOK_URL", "")  # POST {"mobile","text"} -> your SMS/WhatsApp provider bridge
+EMAIL_BACKEND = env("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", "")
+EMAIL_PORT = int(env("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = env("EMAIL_USE_TLS", "1") == "1"
+EMAIL_USE_SSL = env("EMAIL_USE_SSL", "0") == "1"
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "") or EMAIL_HOST_USER
+EMAIL_TIMEOUT = int(env("EMAIL_TIMEOUT", "10"))
+EMAIL_OTP_ENABLED = bool(DEFAULT_FROM_EMAIL) and (
+    bool(EMAIL_HOST) or EMAIL_BACKEND != "django.core.mail.backends.smtp.EmailBackend"
+)
 # ---- Vendors ----
 COMMISSION_HOLD_DAYS, MIN_PAYOUT_PAISE = 30, 50000  # ₹500
 COMMISSION_FIRST_YEAR_ONLY = env("COMMISSION_FIRST_YEAR_ONLY", "0") == "1"

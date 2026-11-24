@@ -1,5 +1,5 @@
 from django.urls import path
-from . import engage_views as ev, extras as ex, reports as rp, views as v, billing as b, vendors as vd
+from . import engage_views as ev, extras as ex, reports as rp, views as v, billing as b, vendors as vd, spin_views as sv
 
 urlpatterns = [
     path("auth/register/", v.register),
@@ -8,7 +8,9 @@ urlpatterns = [
     path("owner/businesses/", v.my_businesses),
     path("businesses/", v.create_business),
     path("b/<str:code>/", v.public_business),
+    path("shops/discover/", v.discover_shops),
     path("b/<str:code>/qr.png", v.business_qr),
+    path("b/<str:code>/spin-qr.png", sv.spin_qr),
     path("b/<str:code>/regenerate-qr/", v.regenerate_qr),
     path("b/<str:code>/programs/", v.create_program),
     path("b/<str:code>/join/", v.join),
@@ -35,6 +37,7 @@ urlpatterns = [
     path("tasks/<int:pk>/", ex.task_update), path("entries/<int:pk>/reverse/", ex.reverse), path("owner/recent/", ex.recent),
     path("b/<str:code>/customers/<int:pid>/block/", ex.block), path("b/<str:code>/broadcast/", ex.broadcast),
     path("me/", ex.delete_me), path("auth/reset/request/", ex.otp_request), path("auth/reset/confirm/", ex.otp_confirm),
+    path("auth/email/request/", ex.recovery_email_request), path("auth/email/confirm/", ex.recovery_email_confirm),
     path("admin/stats/", ex.admin_stats), path("auth/accept/", ex.accept_terms), path("billing/autopay/", b.autopay),
     path("billing/autopay/verify/", b.autopay_verify), path("billing/autopay/cancel/", b.autopay_cancel),
     path("billing/", b.status), path("plans/", b.public_plans), path("billing/order/", b.create_order), path("billing/verify/", b.verify),
@@ -48,8 +51,15 @@ urlpatterns = [
     path("b/<str:code>/customers/<int:pid>/nudge/", ev.nudge_customer), path("rewards/<int:pk>/", ex.reward_update),
     path("programs/<int:pk>/tasks/", ex.program_add_task), path("b/<str:code>/rewards/quick/", ex.quick_reward), path("b/<str:code>/insights/", ev.insights),
     path("b/<str:code>/feedback/", ev.feedback_list),
+    path("b/<str:code>/offers/", ev.shop_offers),
+    path("b/<str:code>/offers/<int:pk>/", ev.shop_offer_detail),
     path("b/<str:code>/boosts/", ev.boosts), path("boosts/<int:pk>/", ev.boost_detail),
+    path("b/<str:code>/spin-wheels/", sv.spin_wheels), path("spin-wheels/<int:pk>/", sv.spin_wheel_detail),
+    path("b/<str:code>/spin/", sv.customer_spin),
     path("b/<str:code>/perks/", ev.perks),
+    path("b/<str:code>/social-follow/claim/", ev.social_follow_claim),
+    path("b/<str:code>/social-follow/claims/", ev.social_follow_claims),
+    path("b/<str:code>/social-follow/claims/<int:pk>/", ev.social_follow_claim_review),
     path("blueprints/", ev.blueprint_list), path("b/<str:code>/blueprint/", ev.blueprint_apply),
     path("b/<str:code>/services/", ev.services_), path("services/<int:pk>/", ev.service_detail),
     path("b/<str:code>/bookings/", ev.bookings), path("bookings/<int:pk>/action/", ev.booking_action),

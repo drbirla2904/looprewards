@@ -6,9 +6,9 @@ rollback:
 backup:
 	bash ./deploy/backup.sh
 logs:
-	sudo journalctl -u firaao -f --no-pager
+	sudo journalctl -u offlet -f --no-pager
 ps:
-	systemctl status firaao --no-pager
+	systemctl status offlet --no-pager
 shell:
 	set -a; . ./.env; set +a; ./venv/bin/python manage.py shell
 superuser:

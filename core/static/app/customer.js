@@ -1,9 +1,16 @@
-/* Firaao v2 customer screens: wallet home, shop page (earn / rewards / book / history / invite), rewards, bookings. */
+/* OFFLet v2 customer screens: wallet home, shop page (earn / rewards / book / history / invite), rewards, bookings. */
 (function (FX) {
   'use strict';
   const { h, t, api, S, field, inp, sel, pill, empty, avatar, stampRow, tierPill, toast, modal, busy } = Object.assign({}, FX, { t: FX.t, S: FX.S });
   const R = FX.routes.customer;
   const TYPE_HINT = { count: 'How many?', amount: 'Bill amount (₹)', visit: 'Visit' };
+  const SOCIALS = [
+    ['instagram_url', 'Instagram', '◎', 'instagram'],
+    ['facebook_url', 'Facebook', 'f', 'facebook'],
+    ['youtube_url', 'YouTube', '▶', 'youtube'],
+    ['tiktok_url', 'TikTok', '♪', 'tiktok'],
+    ['x_url', 'X', 'X', 'x']
+  ];
 
   /* ---------- home: one punch card per shop ---------- */
   function shopCard(s) {
@@ -23,6 +30,43 @@
   R[''] = async function () {
     const w = await api('me/wallet/');
     const code = inp({ ph: 'Shop code', maxlength: 12, 'aria-label': t('Shop code') });
+    const search = inp({ ph: 'Search shop name or area', maxlength: 120, 'aria-label': t('Search shops') });
+    const discoverBox = h('div.g2');
+    let location = null;
+    const discover = async () => {
+      discoverBox.replaceChildren(h('div.card.muted', t('Finding shops...')));
+      try {
+        const params = new URLSearchParams();
+        if (search.value.trim()) params.set('q', search.value.trim());
+        if (location) { params.set('lat', location.lat); params.set('lng', location.lng); }
+        const r = await api('shops/discover/?' + params.toString());
+        discoverBox.replaceChildren(...(r.shops.length ? r.shops.map(s => h('a.shopcard', {
+          href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color)
+        }, h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.name)),
+          h('div.grow', h('h3', s.name), h('small', s.category === 'other' ? t('Shop') : s.category)),
+          s.distance_km != null ? h('small.pill', s.distance_km < 1 ? '< 1 km' : s.distance_km + ' km') : null),
+          s.tagline ? h('small', s.tagline) : null,
+          s.address ? h('small.muted', s.address) : null,
+          h('span.pill', s.joined ? t('Joined') : t('View shop')))) : [empty('No shops found', 'Try another name or area.')]));
+      } catch (e) {
+        discoverBox.replaceChildren(h('div.card', h('p.err', e.message)));
+      }
+    };
+    let searchTimer = null;
+    search.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(discover, 300);
+    });
+    const nearbyBtn = h('button.btn.ghost', { onclick: () => {
+      if (!navigator.geolocation) return toast(t('Location is not supported on this device.'));
+      navigator.geolocation.getCurrentPosition(pos => {
+        location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        discover();
+      }, () => toast(t('Location permission was denied. Search by name instead.')), {
+        enableHighAccuracy: false, timeout: 10000, maximumAge: 300000
+      });
+    } }, '📍 ' + t('Near me'));
+    discover();
     const hr = new Date().getHours(), hello = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
     const name = (S.user && S.user.name) || '';
     const hero = h('div.hero-me', h('div', h('h1', t(hello) + (name ? ', ' + name : '')),
@@ -34,16 +78,18 @@
     return h('div.stack.l', hero, tiles,
       w.shops.length ? h('div.section-t', t('My shops')) : null,
       w.shops.length ? h('div.g2', w.shops.map(shopCard)) : how,
+      h('div.card.stack', h('div.row.between', h('h3', t('Discover shops')), nearbyBtn),
+        h('div.row', search), discoverBox),
       h('div.card.stack', h('h3', t('Add a shop by code')), h('div.row', code, h('button.btn', { onclick: () => { const c = code.value.trim(); if (c) location.href = '/b/' + encodeURIComponent(c) + '/'; } }, t('Open')))));
   };
 
   /* ---------- logged-out shop page (QR landing) ---------- */
   FX.publicShop = async function (code) {
     let biz;
-    try { biz = await api('b/' + code + '/'); } catch (e) { return h('div.page', empty('Shop not found', 'Check the code and try again.', h('a.btn', { href: '/app/' }, t('Go to Firaao')))); }
+    try { biz = await api('b/' + code + '/'); } catch (e) { return h('div.page', empty('Shop not found', 'Check the code and try again.', h('a.btn', { href: '/app/' }, t('Go to OFFLet')))); }
     if (biz.paused) return h('div.page', empty(biz.name, 'This shop is not taking rewards right now.'));
     const perk = biz.perks && biz.perks.welcome;
-    return h('div.page', { style: 'max-width:720px' }, head(biz),
+    return h('div.page', { style: 'max-width:720px' }, head(biz), offerCatalog(biz),
       h('div.card.stack', { style: 'margin-top:16px' }, h('h2', t('Collect rewards at {shop}', { shop: biz.name })),
         h('p.muted', t('Join in 10 seconds with your mobile number. No app to install.')),
         perk ? h('div.banner.green', '🎁 ' + t('Welcome gift: {r}', { r: perk.title })) : null,
@@ -54,12 +100,33 @@
       biz.services.length ? h('div.card', h('h3', t('Services')), biz.services.map(s => h('div.li', h('span.grow', s.name), h('b.num', FX.rupee(s.price))))) : null);
   };
 
+  function offerCatalog(biz) {
+    if (!biz.offers || !biz.offers.length) return null;
+    return h('div.card.stack', h('h2', t('Shop offers')), biz.offers.map(offer => {
+      const label = offer.offer_type === 'percent_off' ? offer.value + '% off' :
+        offer.offer_type === 'fixed_price' ? t('Fixed price') : t('Buy 1 get 1');
+      return h('div.offer-group.stack.s', h('span.offer-badge', label), offer.items.map(item => {
+        const price = Number(item.price), current = offer.offer_type === 'percent_off' ? price * (1 - Number(offer.value) / 100) : Number(item.offer_price);
+        return h('div.li', item.image ? h('img.offer-thumb', { src: item.image, alt: item.name }) : null,
+          h('div.grow', h('b', item.name), h('div.offer-price',
+            offer.offer_type === 'fixed_price' || offer.offer_type === 'percent_off' ? h('b', FX.rupee(current)) : null,
+            offer.offer_type === 'fixed_price' || offer.offer_type === 'percent_off' ? h('del', FX.rupee(price)) : h('b', FX.rupee(price)))));
+      }));
+    }));
+  }
+
   function head(biz) {
     const c = FX.shopVars(biz.brand_color);
-    const links = [biz.phone && h('a.btn.ghost.sm', { href: 'tel:' + biz.phone }, t('Call')), biz.whatsapp && h('a.btn.ghost.sm', { href: 'https://wa.me/' + biz.whatsapp.replace(/\D/g, ''), target: '_blank', rel: 'noopener' }, 'WhatsApp'), biz.maps_url && h('a.btn.ghost.sm', { href: biz.maps_url, target: '_blank', rel: 'noopener' }, t('Directions'))].filter(Boolean);
+    const hasLocation = biz.lat != null && biz.lng != null && Number.isFinite(Number(biz.lat)) && Number.isFinite(Number(biz.lng));
+    const directionsUrl = biz.maps_url || (hasLocation ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(biz.lat + ',' + biz.lng) : '');
+    const socialLinks = SOCIALS.filter(([key]) => biz[key]).map(([key, name, glyph, style]) =>
+      h('a.social-link.' + style, { href: biz[key], target: '_blank', rel: 'noopener noreferrer', title: t('Follow on {platform}', { platform: name }), 'aria-label': t('Follow on {platform}', { platform: name }) }, glyph));
+    const links = [biz.phone && h('a.btn.ghost.sm', { href: 'tel:' + biz.phone }, t('Call')), biz.whatsapp && h('a.btn.ghost.sm', { href: 'https://wa.me/' + biz.whatsapp.replace(/\D/g, ''), target: '_blank', rel: 'noopener' }, 'WhatsApp'), directionsUrl && h('a.btn.ghost.sm', { href: directionsUrl, target: '_blank', rel: 'noopener' }, t('Directions'))].filter(Boolean);
     return h('div.stack', h('div.shophead', { style: c }, h('div.logo-s', biz.logo_url ? h('img', { src: biz.logo_url, alt: '' }) : FX.initial(biz.name)),
-      h('div.grow', h('h1', biz.name), h('div.small', biz.tagline || biz.address || ''))),
-      biz.about ? h('p.muted', biz.about) : null, biz.hours ? h('p.small.muted', t('Open: {h}', { h: biz.hours })) : null, links.length ? h('div.row.wrap', links) : null);
+      h('div.grow', h('h1', biz.name), biz.tagline ? h('div.small', biz.tagline) : null, biz.address ? h('div.small.muted', biz.address) : null)),
+      biz.about ? h('p.muted', biz.about) : null, biz.hours ? h('p.small.muted', t('Open: {h}', { h: biz.hours })) : null,
+      socialLinks.length ? h('div.row.wrap.social-links', h('small.muted', t('Follow this shop')), socialLinks) : null,
+      links.length ? h('div.row.wrap', links) : null);
   }
 
   /* ---------- logged-in shop page ---------- */
@@ -68,23 +135,28 @@
     if (biz.paused) return empty(biz.name, 'This shop is not taking rewards right now.');
     try { me = await api('me/shop/' + code + '/'); } catch (e) { me = null; }
     if (!me) return joinView(biz);
+    let spinData = null;
+    try { spinData = await api('b/' + code + '/spin/'); } catch (e) { /* A missing wheel is not an error on the shop page. */ }
     const asked = new URLSearchParams(location.search).get('tab');  // set when a notification is tapped
-    tab = tab || (['earn', 'rewards', 'book', 'history', 'invite'].includes(asked) ? asked : null) || sessionStorage['tab_' + code] || 'earn';
+    tab = tab || (['earn', 'rewards', 'book', 'history', 'invite', 'spin'].includes(asked) ? asked : null) || sessionStorage['tab_' + code] || 'earn';
     const body = h('div.stack');
     const tabs = [['earn', 'Earn'], ['rewards', 'Rewards' + (me.active_rewards ? ' (' + me.active_rewards + ')' : '')]];
+    if (spinData && spinData.available) tabs.push(['spin', 'Spin & Win']);
     if (biz.bookings_enabled && biz.services.length) tabs.push(['book', 'Book']);
     tabs.push(['history', 'History'], ['invite', 'Invite']);
+    if (!tabs.some(([key]) => key === tab)) tab = 'earn';
     const bar = h('div.seg', { role: 'tablist', style: 'overflow:auto;max-width:100%' });
     const draw = () => {
       sessionStorage['tab_' + code] = tab;
       bar.replaceChildren(...tabs.map(([k, l]) => h('button', { role: 'tab', 'aria-selected': String(k === tab), onclick: () => { tab = k; draw(); } }, t(l.split(' (')[0]) + (l.includes('(') ? ' (' + me.active_rewards + ')' : ''))));
-      body.replaceChildren(({ earn: earnTab, rewards: rewardsTab, book: bookTab, history: historyTab, invite: inviteTab })[tab](biz, me));
+      body.replaceChildren(tab === 'spin' ? FX.spinTab(biz, spinData) :
+        ({ earn: earnTab, rewards: rewardsTab, book: bookTab, history: historyTab, invite: inviteTab })[tab](biz, me));
     };
     const goTab = k => { tab = k; draw(); window.scrollTo({ top: bar.offsetTop - 70, behavior: 'smooth' }); };
     draw();
     watchPending(biz, me);
     const ti = me.tier;
-    return h('div.stack.l', { style: Object.assign({ maxWidth: '760px', margin: '0 auto', width: '100%' }, FX.shopVars(biz.brand_color)) }, head(biz), focusCard(biz, me, goTab),
+    return h('div.stack.l', { style: Object.assign({ maxWidth: '760px', margin: '0 auto', width: '100%' }, FX.shopVars(biz.brand_color)) }, head(biz), socialFollowCard(biz, me), offerCatalog(biz), focusCard(biz, me, goTab),
       h('div.card.row.between.wrap', h('div.row', tierPill(ti.tier), h('div', h('div.bold', t('{n} visits', { n: ti.visits })), ti.perk ? h('small.muted', ti.perk) : null)),
         ti.next ? h('small.muted', t('{n} more visits to {tier}', { n: ti.to_next, tier: t(ti.next === 'gold' ? 'Gold' : 'Silver') }) + (ti.next_perk ? ': ' + ti.next_perk : '')) : h('small.muted', t('Top tier reached')),
         streakView(me)),
@@ -152,11 +224,35 @@
     const consent = h('input', { type: 'checkbox', checked: true });
     const ref = new URLSearchParams(location.search).get('ref') || '';
     const perk = biz.perks && biz.perks.welcome;
+    const socialPerk = biz.perks && biz.perks.social && SOCIALS.some(([key]) => biz[key]);
     return h('div.stack.l', { style: 'max-width:720px;margin:0 auto' }, head(biz), h('div.card.stack', h('h2', t('Join {shop}', { shop: biz.name })),
       perk ? h('div.banner.green', '🎁 ' + t('Welcome gift: {r}', { r: perk.title })) : null,
+      socialPerk ? h('div.banner.green', '🎁 ' + t('Follow a social profile and show staff in store to claim: {r}', { r: socialPerk.title })) : null,
       biz.tiers.length ? h('p.muted', biz.tiers.map(x => t(x.tier === 'gold' ? 'Gold' : 'Silver') + ' = ' + x.visits + ' ' + t('visits')).join('  ·  ')) : null,
       h('label.check', consent, h('span', t('Send me offers from this shop (you can turn this off any time)'))),
       h('button.btn.lg', { onclick: e => busy(e.target, async () => { await api('b/' + biz.shop_code + '/join/', 'POST', { consent: consent.checked, ref }); await FX.start(true); if (perk) FX.celebrate({ icon: '🎁', title: t('Welcome!'), text: t('Your welcome gift unlocks after your first purchase: {r}', { r: perk.title }) }); }) }, t('Join now'))));
+  }
+
+  function socialFollowCard(biz, me) {
+    const reward = me.social_follow_reward, claim = me.social_follow_claim;
+    const hasSocialProfiles = SOCIALS.some(([key]) => biz[key]);
+    if ((!reward && !claim) || (!hasSocialProfiles && !claim)) return null;
+    const status = claim && claim.status;
+    let message = hasSocialProfiles
+      ? t('Follow any profile above and show it to staff in store. Staff verify before issuing this reward.')
+      : t('Your shop removed its social profiles. Ask staff about your pending request.');
+    if (status === 'pending') message = t('Your request is pending. Show your followed profile to shop staff.');
+    else if (status === 'approved') message = t('Staff approved your follow. Your reward is in the Rewards tab.');
+    else if (status === 'rejected') message = t('Staff could not verify the follow. Follow a listed profile and request again.');
+    const canRequest = reward && status !== 'pending' && status !== 'approved';
+    return h('div.card.stack.social-follow-card',
+      h('div.row', h('span.social-reward-icon', '🎁'), h('div.grow', h('b', t('Social follow reward')), h('div.small.muted', (claim && claim.reward_title) || (reward && reward.title) || ''))),
+      h('p.small.muted', message),
+      canRequest ? h('button.btn.soft.sm', { style: 'justify-self:start', onclick: e => busy(e.target, async () => {
+        await api('b/' + biz.shop_code + '/social-follow/claim/', 'POST', {});
+        toast(t('Follow request sent. Show your profile to staff for verification.'));
+        await refreshShop(biz.shop_code);
+      }) }, t(status === 'rejected' ? 'Request again' : 'I followed — request reward')) : null);
   }
 
   /* ---------- earn: one big tap ---------- */
@@ -237,16 +333,26 @@
 
   /* ---------- rewards ---------- */
   function passModal(g, color, shop) {
-    modal(t('Reward pass'), h('div.passbody', shop ? h('small', shop) : null, h('div.t', g.title),
+    modal(t('Reward pass'), h('div.passbody', shop ? h('small', shop) : null, g.image ? h('img.offer-image', { src: g.image, alt: g.item_name || g.title }) : null,
+      g.item_name ? h('div.offer-item', g.item_name) : null, h('div.t', g.title),
+      g.offer_price && Number(g.offer_price) > 0 ? h('div.offer-price', h('b', FX.rupee(g.offer_price)), g.original_price && Number(g.original_price) > 0 ? h('del', FX.rupee(g.original_price)) : null) : null,
+      g.type === 'percent_off' ? h('div.offer-badge', g.value + '% OFF') : g.type === 'flat_off' ? h('div.offer-badge', FX.rupee(g.value) + ' OFF') : null,
       h('div.qrw', h('img', { src: '/api/rewards/qr/' + encodeURIComponent(g.code) + '.png', alt: t('QR code for this reward'), width: 230, height: 230 })),
       h('div.big', g.code), h('small', FX.until(g.expires_at)), g.terms ? h('small', g.terms) : null,
       h('small', t('Show this to the staff. They scan it or type the code.')),
       h('button.btn.block', { style: 'background:#fff;color:#15192b;background-image:none', onclick: () => FX.copy(g.code) }, t('Copy code'))),
       { cls: 'pass', style: FX.shopVars(color) });
   }
-  const ticket = (g, shop, color, shopName) => h('div.ticket.' + g.status, h('div.main', h('b', g.title), shop ? h('small.muted', shop) : null,
+  const ticket = (g, shop, color, shopName) => h('div.ticket.' + g.status, h('div.main',
+    g.image ? h('img.offer-thumb', { src: g.image, alt: g.item_name || g.title }) : null,
+    g.item_name ? h('b', g.item_name) : null, h('b', g.title),
+    g.type === 'percent_off' ? h('span.offer-badge', g.value + '% OFF') :
+      g.type === 'flat_off' ? h('span.offer-badge', FX.rupee(g.value) + ' OFF') : null,
+    g.offer_price && Number(g.offer_price) > 0 ? h('div.offer-price', h('b', FX.rupee(g.offer_price)),
+      g.original_price && Number(g.original_price) > 0 ? h('del', FX.rupee(g.original_price)) : null) : null,
+    shop ? h('small.muted', shop) : null,
     g.terms ? h('small.muted', g.terms) : null, h('small', g.status === 'active' ? FX.until(g.expires_at) : t(g.status === 'used' ? 'Used' : g.status === 'expired' ? 'Expired' : 'Cancelled')),
-    g.trigger === 'welcome' ? pill(t('Welcome gift'), 'ok') : g.trigger === 'winback' ? pill(t('Welcome-back gift'), 'ok') : g.trigger === 'referral' ? pill(t('Referral reward'), 'info') : null),
+    g.trigger === 'welcome' ? pill(t('Welcome gift'), 'ok') : g.trigger === 'winback' ? pill(t('Welcome-back gift'), 'ok') : g.trigger === 'referral' ? pill(t('Referral reward'), 'info') : g.trigger === 'social' ? pill(t('Social follow reward'), 'info') : null),
     h('div.stub', h('small.muted', t('Show this code')), h('div.code', g.code),
       g.status === 'active' ? h('button.btn.sm', { onclick: () => passModal(g, color, shopName || shop) }, t('Show at counter')) : null,
       g.status === 'active' ? h('button.btn.ghost.sm', { onclick: () => FX.copy(g.code) }, t('Copy')) : null));

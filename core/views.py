@@ -1,4 +1,5 @@
 import io
+import math
 import segno
 from urllib.parse import urlencode
 from django.conf import settings
@@ -16,7 +17,8 @@ from rest_framework.response import Response
 from . import services
 from .models import (Vendor, Business, CustomerProfile, Program, PurchaseEntry, Reward, Task, User,
                      new_shop_code)
-from .serializers import BusinessSerializer, EntrySerializer, ProgramSerializer
+from .notify import announce_shop_customers
+from .serializers import BusinessSerializer, EntrySerializer, ProgramSerializer, ShopOfferSerializer
 
 
 def _mgr_only(user):
@@ -83,14 +85,60 @@ def create_program(request, code):
     biz = get_object_or_404(Business, shop_code=code, owner=request.user)
     d = request.data
     prog = Program.objects.create(business=biz, title=d.get("title", "Rewards"))
+    reward_titles = []
     for t in d.get("tasks", []):
         rewards = t.pop("rewards", [])
         task = Task.objects.create(program=prog, **{k: t[k] for k in t if k in
             ("title", "type", "target", "item_name", "repeatable", "max_per_customer")})
         for r in rewards:
-            Reward.objects.create(task=task, **{k: r[k] for k in r if k in
+            reward = Reward.objects.create(task=task, **{k: r[k] for k in r if k in
                 ("title", "type", "value", "expiry_days", "terms")})
+            reward_titles.append(reward.title)
+    if reward_titles:
+        names = ", ".join(reward_titles[:3]) + (" and more" if len(reward_titles) > 3 else "")
+        announce_shop_customers(
+            biz, f"New rewards at {biz.name}: {names}.",
+            link=f"/b/{biz.shop_code}/?tab=earn",
+        )
     return Response(ProgramSerializer(prog).data, status=201)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def discover_shops(request):
+    """Search live shops by name/address and optionally order them by customer distance."""
+    query = str(request.GET.get("q", "")).strip()[:120]
+    shops = Business.objects.filter(status="active")
+    if query:
+        shops = shops.filter(Q(name__icontains=query) | Q(address__icontains=query) | Q(category__icontains=query))
+    try:
+        lat = float(request.GET.get("lat")) if request.GET.get("lat") else None
+        lng = float(request.GET.get("lng")) if request.GET.get("lng") else None
+    except (TypeError, ValueError):
+        lat = lng = None
+    out = []
+    joined_ids = set()
+    if request.user.is_authenticated:
+        joined_ids = set(request.user.profiles.filter(hidden_from_customer=False).values_list("business_id", flat=True))
+    for biz in shops.select_related("owner").order_by("name")[:200]:
+        if not biz.is_live:
+            continue
+        distance_km = None
+        if lat is not None and lng is not None and biz.lat is not None and biz.lng is not None:
+            rad = math.pi / 180
+            dlat, dlng = (biz.lat - lat) * rad, (biz.lng - lng) * rad
+            a = math.sin(dlat / 2) ** 2 + math.cos(lat * rad) * math.cos(biz.lat * rad) * math.sin(dlng / 2) ** 2
+            distance_km = 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0, 1 - a)))
+        out.append({
+            "name": biz.name, "category": biz.category, "tagline": biz.tagline,
+            "address": biz.address, "shop_code": biz.shop_code, "brand_color": biz.brand_color,
+            "logo_url": biz.logo.url if biz.logo else "", "lat": biz.lat, "lng": biz.lng,
+            "distance_km": round(distance_km, 1) if distance_km is not None else None,
+            "joined": biz.id in joined_ids,
+        })
+    if lat is not None and lng is not None:
+        out.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] if x["distance_km"] is not None else 0, x["name"]))
+    return Response({"shops": out})
 
 
 @api_view(["GET"])
@@ -112,7 +160,12 @@ def public_business(request, code):
     from .serializers import ServiceSerializer
     data["boosts_now"] = [engage.boost_dict(b) for b in engage.active_boosts(biz)]
     data["services"] = ServiceSerializer(biz.services.filter(active=True), many=True).data if biz.bookings_enabled else []
-    data["perks"] = {r.trigger: {"title": r.title} for r in biz.perk_rewards.filter(trigger__in=("welcome", "referral"))}
+    data["perks"] = {r.trigger: {"title": r.title} for r in biz.perk_rewards.filter(
+        trigger__in=("welcome", "referral", "social")
+    )}
+    data["offers"] = ShopOfferSerializer(
+        biz.offers.filter(active=True).prefetch_related("items"), many=True
+    ).data
     data["tiers"] = [{"tier": t, "visits": n, "perk": perk} for t, n, perk in engage.tier_ladder(biz)[1:]]
     return Response(data)
 
@@ -224,7 +277,9 @@ def my_shops(request):
                           "completed": t.completed_count} for t in p.progress.select_related("task")],
             "rewards": [{"title": g.reward.title, "type": g.reward.type, "value": g.reward.value,
                          "terms": g.reward.terms, "code": g.code, "status": g.status,
-                         "expires_at": g.expires_at} for g in p.grants.select_related("reward")],
+                         "expires_at": g.expires_at, "item_name": g.reward.item_name,
+                         "original_price": g.reward.original_price, "offer_price": g.reward.offer_price,
+                         "image": g.reward.image.url if g.reward.image else ""} for g in p.grants.select_related("reward")],
             "entries": [{"id": e.id, "task_id": e.task_id, "task_title": e.task.title,
                          "task_type": e.task.type, "value": e.value, "status": e.status,
                          "created_at": e.created_at, "reviewed_at": e.reviewed_at}
@@ -281,7 +336,8 @@ from django.contrib.auth import authenticate
 @permission_classes([AllowAny])
 @throttle_classes([AuthThrottle])
 def login(request):
-    u = authenticate(username=request.data.get("username"), password=request.data.get("password"))
+    mobile = request.data.get("mobile") or request.data.get("username")
+    u = authenticate(username=str(mobile or "").strip(), password=request.data.get("password"))
     if not u:
         raise ValidationError("Wrong mobile or password.")
     return Response({"token": Token.objects.get_or_create(user=u)[0].key, "role": u.role, "needs_consent": u.consent_at is None})
@@ -296,7 +352,10 @@ def profile(request):
             raise ValidationError("Enter a name up to 150 characters.")
         user.first_name = name.strip()
         user.save(update_fields=["first_name"])
-    return Response({"name": user.first_name, "mobile": user.username, "role": user.role})
+    return Response({
+        "name": user.first_name, "mobile": user.username, "role": user.role,
+        "email": user.email, "email_verified": user.email_verified,
+    })
 
 
 @api_view(["GET"])

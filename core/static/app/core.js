@@ -1,4 +1,4 @@
-/* Firaao v2 core: DOM helper, API client, state, router, layout, auth, shared components, account, counter screen. */
+/* OFFLet v2 core: DOM helper, API client, state, router, layout, auth, shared components, account, counter screen. */
 (function (FX) {
   'use strict';
   const t = FX.t;
@@ -184,8 +184,19 @@
   const hbars = (rows) => { const max = Math.max(1, ...rows.map(r => r[1])); return h('div', rows.map(([l, v]) => h('div.hbar', h('span', l), h('div.t', h('i', { style: { width: (100 * v / max) + '%' } })), h('b.num', v)))); };
   const copy = async (txt) => { try { await navigator.clipboard.writeText(txt); } catch (e) { const a = h('textarea', { value: txt }); document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); } toast(t('Copied')); };
   const share = (text, url) => { if (navigator.share) navigator.share({ text, url }).catch(() => {}); else window.open('https://wa.me/?text=' + encodeURIComponent(text + ' ' + url), '_blank', 'noopener'); };
-  const getPos = () => new Promise(r => (navigator.geolocation ? navigator.geolocation.getCurrentPosition(p => r(p.coords), () => r(null), { timeout: 4000, maximumAge: 60000 }) : r(null)));
-  Object.assign(FX, { field, inp, sel, pill, empty, kpi, avatar, chips, tierPill, stars, stampRow, barChart, hbars, copy, share, getPos });
+  const locate = (options = {}) => new Promise((resolve, reject) => {
+    if (!window.isSecureContext) return reject(new Error(t('Location detection requires a secure HTTPS connection.')));
+    if (!navigator.geolocation) return reject(new Error(t('This device or browser does not support location detection.')));
+    navigator.geolocation.getCurrentPosition(resolve, error => {
+      const message = error.code === 1 ? 'Location access was denied. Allow it in your browser settings and try again.' :
+        error.code === 2 ? 'Your device could not determine the location. Check its location services and try again.' :
+          error.code === 3 ? 'Location request timed out. Check that device location is enabled and try again.' :
+            'Could not detect your location. Please try again.';
+      reject(new Error(t(message)));
+    }, Object.assign({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }, options));
+  });
+  const getPos = () => locate({ enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }).then(p => p.coords).catch(() => null);
+  Object.assign(FX, { field, inp, sel, pill, empty, kpi, avatar, chips, tierPill, stars, stampRow, barChart, hbars, copy, share, getPos, locate });
 
   /* ---------------- motion + delight ---------------- */
   FX.haptic = p => { try { if (navigator.vibrate) navigator.vibrate(p || 12); } catch (e) { /* unsupported */ } };
@@ -260,7 +271,7 @@
     staff: [['', 'Queue', 'check'], ['bookings', 'Bookings', 'cal'], ['counter', 'Counter code', 'scan'], ['account', 'Account', 'user']],
     vendor: [['', 'Dashboard', 'home'], ['kit', 'Marketing kit', 'mega'], ['statements', 'Earnings', 'card'], ['account', 'Account', 'user']],
     owner: [['', 'Today', 'home'], ['customers', 'Customers', 'users'], ['rewards', 'Rewards', 'gift'], ['bookings', 'Bookings', 'cal'],
-      ['campaigns', 'Offers', 'mega'], ['insights', 'Insights', 'chart'], ['shop', 'My shop', 'shop'], ['refer', 'Refer & Earn', 'gift'], ['billing', 'Billing', 'card'], ['account', 'Account', 'user']]
+      ['spin', 'Spin & Win', 'pie'], ['campaigns', 'Offers', 'mega'], ['insights', 'Insights', 'chart'], ['shop', 'My shop', 'shop'], ['refer', 'Refer & Earn', 'gift'], ['billing', 'Billing', 'card'], ['account', 'Account', 'user']]
   };
   function navItems() {
     let items = NAV[S.role] || [];
@@ -286,9 +297,9 @@
     const root = $('#root');
     const shopSwitch = S.role === 'owner' && S.shops.length > 1 ? sel(S.shops.map(s => [s.shop_code, s.name]), S.biz && S.biz.shop_code, { 'aria-label': t('Switch shop'), onchange: e => { localStorage.fx_biz = e.target.value; S.biz = S.shops.find(s => s.shop_code === e.target.value); FX.render(); } }) : null;
     root.replaceChildren(h('div.app',
-      h('aside.side', h('a.logo', { href: '#/' }, h('img', { src: '/icon.svg', alt: '' }), 'Firaao'), h('nav', { style: 'display:grid;gap:2px' }), h('div.grow'),
+      h('aside.side', h('a.logo', { href: '#/' }, h('img', { src: '/icon.svg', alt: '' }), 'OFFLet'), h('nav', { style: 'display:grid;gap:2px' }), h('div.grow'),
         h('button.nav', { onclick: FX.signOut }, ico('out'), t('Log out'))),
-      h('div', h('header.top', h('a.logo', { href: '#/' }, h('img', { src: '/icon.svg', alt: '' }), 'Firaao'), shopSwitch, h('div.grow'),
+      h('div', h('header.top', h('a.logo', { href: '#/' }, h('img', { src: '/icon.svg', alt: '' }), 'OFFLet'), shopSwitch, h('div.grow'),
         h('button.btn.ghost.sm', { onclick: () => { FX.setLang(FX.lang === 'hi' ? 'en' : 'hi'); FX.start(true); } }, FX.lang === 'hi' ? 'English' : 'हिन्दी'),
         h('button.iconbtn', { 'aria-label': t('Text size'), onclick: FX.cycleTextSize, style: 'font-weight:800;font-size:calc(13px * var(--font-scale, .8))' }, 'Aa'),
         h('button.iconbtn', { 'aria-label': t('Notifications'), onclick: FX.inbox }, ico('bell'), h('span.dot#bellDot', { hidden: true }))),
@@ -403,7 +414,7 @@
     if (vref) localStorage.ref = vref;
     let mode = o.mode || (vref ? 'register' : 'login'), role = o.role || (vref ? 'owner' : 'customer');
     const box = h('div.form');
-    const wrap = h('div.auth', h('section.hero', h('a.logo', { href: '/app/', style: 'color:#fff' }, h('img', { src: '/icon.svg', alt: '' }), 'Firaao'),
+    const wrap = h('div.auth', h('section.hero', h('a.logo', { href: '/app/', style: 'color:#fff' }, h('img', { src: '/icon.svg', alt: '' }), 'OFFLet'),
       h('h1', t('Give customers a reason to come back.')),
       h('p', t('Stamp cards, rewards and bookings for local shops, salons and studios. Customers scan a QR code. No app to install.')),
       h('div.demo-card', h('div.row.between', h('b', 'Chai Point'), h('span.pill.gold', t('Gold'))), h('div.stamps', [1, 2, 3, 4, 5, 6].map(i => h('div.stamp' + (i <= 4 ? '.on' : '') + (i === 6 ? '.gift' : ''), i <= 4 ? h('span', '✓') : i === 6 ? h('span', '🎁') : null))), h('small', t('2 more visits for a free chai')))), box);
@@ -418,7 +429,7 @@
         await busy(go, async () => {
           try {
             let r;
-            if (mode === 'login') r = await api('auth/login/', 'POST', { username: mobile.value.trim(), password: pw.value });
+            if (mode === 'login') r = await api('auth/login/', 'POST', { mobile: mobile.value.trim(), password: pw.value });
             else r = await api('auth/register/', 'POST', { mobile: mobile.value.trim(), password: pw.value, name: name.value.trim(), role, accepted: agree.checked, ref: role === 'owner' && !location.pathname.startsWith('/b/') ? localStorage.ref || '' : '' });
             await FX.signIn(r);
           } catch (x) { err.textContent = x.message; }
@@ -435,7 +446,11 @@
     function forgot() {
       const mobile = inp({ type: 'tel', ph: '10-digit mobile number' }), otp = inp({ inputmode: 'numeric', ph: '6-digit code', maxlength: 6 }), npw = inp({ type: 'password', ph: 'New password' });
       const step2 = h('div.stack', { hidden: true }, field('OTP', otp), field('New password', npw), h('button.btn', { onclick: async e => busy(e.target, async () => { await api('auth/reset/confirm/', 'POST', { mobile: mobile.value.trim(), otp: otp.value, new: npw.value }); m.close(); toast(t('Password changed. Please log in.')); }) }, t('Change password')));
-      const m = modal(t('Reset password'), h('div.stack', field('Mobile number', mobile), h('button.btn', { onclick: e => busy(e.target, async () => { const r = await api('auth/reset/request/', 'POST', { mobile: mobile.value.trim() }); toast(FX.tr(r.detail)); step2.hidden = false; }) }, t('Send OTP')), step2));
+      const m = modal(t('Reset password'), h('div.stack',
+        field('Mobile number', mobile),
+        h('p.small.muted', t('When SMS is unavailable, the code is sent to your verified recovery email. Add one in Account before you need it.')),
+        h('button.btn', { onclick: e => busy(e.target, async () => { const r = await api('auth/reset/request/', 'POST', { mobile: mobile.value.trim() }); toast(FX.tr(r.detail)); step2.hidden = false; }) }, t('Send OTP')),
+        step2));
     }
     draw();
     return wrap;
@@ -445,6 +460,21 @@
   FX.routes.customer.account = FX.routes.owner.account = FX.routes.staff.account = FX.routes.vendor.account = async function () {
     const me = S.user || await api('me/profile/');
     const name = inp({ value: me.name, maxlength: 150 });
+    const recoveryEmail = inp({ type: 'email', value: me.email || '', autocomplete: 'email', ph: 'Email address' });
+    const recoveryCode = inp({ inputmode: 'numeric', maxlength: 6, ph: '6-digit code' });
+    const recoveryStatus = h('p.small.muted', me.email_verified
+      ? t('Verified recovery email: {email}', { email: me.email })
+      : me.email ? t('Recovery email not verified yet.') : t('No verified recovery email.'));
+    const emailConfirm = h('div.stack.s', { hidden: true },
+      field('Email verification code', recoveryCode),
+      h('button.btn', { onclick: e => busy(e.target, async () => {
+        const result = await api('auth/email/confirm/', 'POST', { otp: recoveryCode.value.trim() });
+        recoveryEmail.value = result.email;
+        recoveryStatus.textContent = t('Verified recovery email: {email}', { email: result.email });
+        recoveryCode.value = '';
+        emailConfirm.hidden = true;
+        toast(t('Recovery email verified.'));
+      }) }, t('Verify email')));
     const img = (await api('me/profile-image/')).profile_image_url;
     const hidden = S.role === 'customer' ? await api('me/shops/hidden/') : [];
     const old = inp({ type: 'password', autocomplete: 'current-password' }), nw = inp({ type: 'password', autocomplete: 'new-password' });
@@ -452,6 +482,18 @@
     return h('div.stack.l', h('h1', t('Account')),
       h('div.card.stack', h('div.row', avatar(me.name, img), h('div.grow', h('b', me.name || t('Add your name')), h('div.muted.small', me.mobile)), h('button.btn.ghost.sm', { onclick: () => photo.click() }, t('Change photo')), photo),
         field('Name', name), h('button.btn', { onclick: e => busy(e.target, async () => { await api('me/profile/', 'PATCH', { name: name.value }); S.user = null; toast(t('Saved')); }) }, t('Save name'))),
+      h('div.card.stack', h('h3', t('Password recovery')), h('p.small.muted', t('Add a verified email to receive password-reset codes when SMS is unavailable.')),
+        field('Recovery email', recoveryEmail), recoveryStatus,
+        h('button.btn.ghost', { onclick: e => busy(e.target, async () => {
+          const result = await api('auth/email/request/', 'POST', { email: recoveryEmail.value.trim() });
+          if (result.verified) {
+            recoveryStatus.textContent = t('Verified recovery email: {email}', { email: recoveryEmail.value.trim() });
+            toast(t('Recovery email is already verified.'));
+            return;
+          }
+          emailConfirm.hidden = false;
+          toast(FX.tr(result.detail));
+        }) }, t('Send verification code')), emailConfirm),
       h('div.card.stack', h('h3', t('Language')), h('div.seg', ['en', 'hi'].map(l => h('button', { 'aria-selected': String(FX.lang === l), onclick: () => { FX.setLang(l); FX.start(true); } }, l === 'en' ? 'English' : 'हिन्दी')))),
       h('div.card.stack', h('h3', t('Change password')), field('Current password', old), field('New password', nw), h('button.btn.ghost', { onclick: e => busy(e.target, async () => { await api('auth/change-password/', 'POST', { old: old.value, new: nw.value }); old.value = nw.value = ''; toast(t('Password changed.')); }) }, t('Update password'))),
       hidden.length ? h('div.card', h('h3', t('Hidden shops')), hidden.map(s => h('div.li', h('span.grow', s.business__name), h('button.btn.soft.sm', { onclick: async () => { await api('me/shops/' + s.business__shop_code + '/restore/', 'POST'); FX.render(true); } }, t('Restore'))))) : null,

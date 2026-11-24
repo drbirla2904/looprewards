@@ -22,7 +22,7 @@ CATEGORY_THEMES = {
 }
 
 
-ASSET_VERSION = "2.3.9"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
+ASSET_VERSION = "2.4.8"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
 
 
 def shell(request, code=None):
@@ -43,7 +43,7 @@ def shell(request, code=None):
 def classic(request):
     """The previous single-file UI, kept one release as a fallback (/app/classic/)."""
     html = (WEB / "app_classic.html").read_text(encoding="utf-8")
-    html = html.replace("</style>", '.brand-mark{background:url("/icon.svg") center/cover no-repeat}.brand-mark svg{display:none}</style>', 1)
+    html = html.replace("</head>", '<style>.brand-mark{background:url("/icon.svg") center/cover no-repeat}.brand-mark svg{display:none}</style></head>', 1)
     html = html.replace("</body>", f'<script src="/static/app/install.js?v={ASSET_VERSION}"></script></body>')
     return HttpResponse(html, content_type="text/html")
 
@@ -73,7 +73,7 @@ def healthz(request):
 
 
 def manifest(request):
-    return JsonResponse({"name": "Firaao", "short_name": "Firaao", "start_url": "/app/", "scope": "/",
+    return JsonResponse({"name": "OFFLet", "short_name": "OFFLet", "start_url": "/app/", "scope": "/",
         "display": "standalone", "background_color": "#ffffff", "theme_color": "#5e35b1",
         "description": "Rewards, bookings and repeat customers for local businesses.",
         "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
@@ -84,7 +84,7 @@ def manifest(request):
 def sw(request):
     """Service worker: stale-while-revalidate for the versioned app assets only. HTML and /api/ always hit the
     network, so a stale screen or a cached private response can never be served."""
-    js = ("const V='firaao-%s';"
+    js = ("const V='offlet-%s';"
           "self.addEventListener('install',()=>self.skipWaiting());"
           "self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all("
           "k.filter(x=>x!==V).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));"
@@ -98,17 +98,21 @@ def sw(request):
 
 
 def icon(request):
-    return HttpResponse('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7a4bd1"/><stop offset="1" stop-color="#3f2380"/></linearGradient></defs><rect width="100" height="100" rx="28" fill="url(#g)"/><path d="M32 73V43a15 15 0 0 1 28-8M32 51h34" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"/><circle cx="69" cy="31" r="8" fill="#ffb020" stroke="#fff" stroke-width="4"/></svg>',
-        content_type="image/svg+xml")
+    response = HttpResponse(
+        (Path(__file__).parent / "static" / "app" / "offlet-icon.svg").read_text(encoding="utf-8"),
+        content_type="image/svg+xml",
+    )
+    response["Cache-Control"] = "no-cache"
+    return response
 
 
 _FLYER = {
     "en": {"h": "Make customers come back.", "sub": "Stamp cards, rewards and bookings for your shop. Customers scan a QR code. No app to install.",
            "b": ["Set up in one minute with a ready-made program for your business type", "Approve purchases from your phone, see who is slipping away, send win-back offers",
-                 "Free {t}-day trial, then from \u20b9{m} a month (GST included)"], "scan": "Scan to start your free trial", "by": "Your Firaao partner"},
+                 "Free {t}-day trial, then from \u20b9{m} a month (GST included)"], "scan": "Scan to start your free trial", "by": "Your OFFLet partner"},
     "hi": {"h": "ग्राहकों को वापस लाइए।", "sub": "आपकी दुकान के लिए स्टैम्प कार्ड, रिवॉर्ड और बुकिंग। ग्राहक QR कोड स्कैन करते हैं। कोई ऐप इंस्टॉल नहीं।",
            "b": ["अपने बिज़नेस के हिसाब से तैयार प्रोग्राम के साथ एक मिनट में सेटअप", "फ़ोन से खरीदारी अप्रूव करें, देखें कौन दूर हो रहा है, वापसी ऑफ़र भेजें",
-                 "{t} दिन फ़्री ट्रायल, फिर \u20b9{m} महीने से (GST सहित)"], "scan": "फ़्री ट्रायल शुरू करने के लिए स्कैन करें", "by": "आपका Firaao पार्टनर"},
+                 "{t} दिन फ़्री ट्रायल, फिर \u20b9{m} महीने से (GST सहित)"], "scan": "फ़्री ट्रायल शुरू करने के लिए स्कैन करें", "by": "आपका OFFLet पार्टनर"},
 }
 
 
@@ -120,7 +124,7 @@ def partner_flyer(request, code):
     monthly = settings.PLANS.get("monthly", {}).get("amount", 0) // 100
     qr = segno.make(f"{settings.BASE_URL}/app/?ref={v.code}", error="m").svg_inline(scale=6, border=2, dark="#000", light="#fff")
     bullets = "".join(f"<li>{escape(x.format(t=settings.TRIAL_DAYS, m=monthly))}</li>" for x in t["b"])
-    html = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><title>Firaao</title>
+    html = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><title>OFFLet</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap"><style>
 @page{{size:A4;margin:0}}body{{margin:0;font-family:Hind,"Noto Sans Devanagari",system-ui,sans-serif;color:#15192b}}
 .p{{width:210mm;min-height:297mm;box-sizing:border-box;padding:18mm;background:#fff}}

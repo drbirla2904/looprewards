@@ -21,6 +21,6 @@ git reset --hard "$PREVIOUS"
 ./venv/bin/pip install -r requirements.txt
 ./venv/bin/python manage.py migrate --noinput
 ./venv/bin/python manage.py collectstatic --noinput
-sudo systemctl restart firaao
+sudo systemctl restart offlet
 curl --fail --silent --show-error --retry 15 --retry-delay 2 "http://127.0.0.1:$APP_BIND_PORT/healthz"
 echo "Rolled back code to $PREVIOUS. Database migrations were not reversed."

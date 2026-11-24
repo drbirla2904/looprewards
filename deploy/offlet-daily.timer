@@ -1,0 +1,10 @@
+[Unit]
+Description=Run OFFLet daily tasks
+
+[Timer]
+OnCalendar=*-*-* 20:45:00 UTC
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

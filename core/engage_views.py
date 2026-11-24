@@ -1,8 +1,10 @@
 """v2 API: wallet, customer CRM, campaigns, insights, boosts, perks, services, bookings, feedback, blueprints."""
 from datetime import timedelta
+import json
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -13,10 +15,11 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from . import blueprints, engage, services
-from .models import (AuditLog, Booking, Boost, Business, CustomerProfile, Feedback, PurchaseEntry, Reward, Service,
-                     can_manage)
-from .notify import push
-from .serializers import BoostSerializer, BookingSerializer, FeedbackSerializer, ServiceSerializer
+from .models import (AuditLog, Booking, Boost, Business, CustomerProfile, Feedback, PurchaseEntry, Reward,
+                     RewardGrant, Service, ShopOffer, ShopOfferItem, SocialFollowClaim, can_manage)
+from .notify import announce_shop_customers, push
+from .serializers import (BoostSerializer, BookingSerializer, FeedbackSerializer, ServiceSerializer,
+                          ShopOfferSerializer)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -49,6 +52,15 @@ def _dec(v, field="value"):
     if not d.is_finite() or d < 0 or d > Decimal("99999999.99"):
         raise ValidationError(f"Enter a valid {field}.")
     return d.quantize(Decimal("0.01"))
+
+
+def _offer_item_image(image):
+    if not image:
+        return
+    if image.size > 5 * 1024 * 1024:
+        raise ValidationError("Product images must be 5 MB or smaller.")
+    if image.content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise ValidationError("Upload a JPEG, PNG or WebP product image.")
 
 
 # --------------------------------------------------------------------------- session
@@ -99,6 +111,15 @@ def customer_shop(request, code):
         "referral_reward": next((r.title for r in biz.perk_rewards.filter(trigger="referral")[:1]), ""),
         "friends_referred": p.referred.count(),
     })
+    social_reward = biz.perk_rewards.filter(trigger="social").first()
+    follow_claim = SocialFollowClaim.objects.filter(profile=p).select_related("reward_grant__reward").first()
+    st["social_follow_reward"] = _perk(social_reward) if social_reward else None
+    st["social_follow_claim"] = ({
+        "status": follow_claim.status,
+        "requested_at": follow_claim.requested_at,
+        "reward_title": (follow_claim.reward_grant.reward.title if follow_claim.reward_grant_id
+                         else social_reward.title if social_reward else ""),
+    } if follow_claim else None)
     return Response(st)
 
 
@@ -228,6 +249,38 @@ def winback(request, code):
     title = str(request.data.get("title", "")).strip()[:120]
     if not title:
         raise ValidationError("Name the gift, for example: Free cookie.")
+    offer_type = str(request.data.get("offer_type", "gift")).strip()
+    type_map = {
+        "percent_off": "percent_off",
+        "flat_off": "flat_off",
+        "free_item": "free_item",
+        "fixed_price": "special_offer",
+        "gift": "gift",
+    }
+    reward_type = type_map.get(offer_type)
+    if not reward_type:
+        raise ValidationError("Choose a valid offer type.")
+    try:
+        value = Decimal(str(request.data.get("value", 0) or 0))
+        original_price = Decimal(str(request.data.get("original_price", 0) or 0))
+        offer_price = Decimal(str(request.data.get("offer_price", 0) or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError("Offer prices and values must be numbers.")
+    if reward_type == "percent_off" and not 1 <= value <= 100:
+        raise ValidationError("Percentage discount must be from 1 to 100.")
+    if reward_type == "flat_off" and value <= 0:
+        raise ValidationError("Fixed discount must be greater than zero.")
+    if reward_type == "special_offer" and offer_price <= 0:
+        raise ValidationError("Set a fixed offer price.")
+    item_name = str(request.data.get("item_name", "")).strip()[:120]
+    if offer_type in ("free_item", "fixed_price") and not item_name:
+        raise ValidationError("Add an item name.")
+    offer_image = request.FILES.get("image")
+    if offer_image:
+        if offer_image.size > 5 * 1024 * 1024:
+            raise ValidationError("The product image must be 5 MB or smaller.")
+        if offer_image.content_type not in ("image/jpeg", "image/png", "image/webp"):
+            raise ValidationError("Upload a JPEG, PNG or WebP product image.")
     try:
         days = int(request.data.get("expiry_days", 7))
     except (TypeError, ValueError):
@@ -243,8 +296,12 @@ def winback(request, code):
     if sent_today.count() >= 3:
         raise ValidationError("Daily campaign limit reached (3). Customers should not be spammed.")
     text = str(request.data.get("text", "")).strip()[:100] or "We miss you! A gift is waiting for you."
-    reward = Reward.objects.create(business=biz, trigger="winback", type="gift", title=title, expiry_days=days,
-                                   terms=str(request.data.get("terms", "")).strip()[:300])
+    reward = Reward.objects.create(
+        business=biz, trigger="winback", type=reward_type, title=title, value=value,
+        expiry_days=days, terms=str(request.data.get("terms", "")).strip()[:300],
+        item_name=item_name, original_price=original_price, offer_price=offer_price,
+        image=offer_image,
+    )
     for p in CustomerProfile.objects.filter(pk__in=ids).select_related("user"):
         g = RewardGrant.objects.create(profile=p, reward=reward, expires_at=timezone.now() + timedelta(days=days))
         push(p.user, f"{biz.name}: {text} {title}, code {g.code}.", link=f"/b/{biz.shop_code}/?tab=rewards")
@@ -266,6 +323,84 @@ def feedback_list(request, code):
     biz = _owner_biz(request, code)
     qs = Feedback.objects.filter(profile__business=biz).select_related("profile__user").order_by("-created_at")
     return Response(FeedbackSerializer(qs[:30], many=True).data)
+
+
+@api_view(["GET", "POST", "DELETE"])
+@transaction.atomic
+def shop_offers(request, code):
+    biz = _owner_biz(request, code)
+    if request.method == "GET":
+        offers = biz.offers.prefetch_related("items")
+        return Response(ShopOfferSerializer(offers, many=True).data)
+    if request.method == "DELETE":
+        biz.offers.filter(active=True).update(active=False)
+        return Response({"removed": True})
+
+    offer_type = str(request.data.get("offer_type", "")).strip()
+    if offer_type not in dict(ShopOffer.TYPES):
+        raise ValidationError("Choose percentage off, fixed price, or buy one get one.")
+    value = _dec(request.data.get("value", 0) or 0, "discount")
+    if offer_type == "percent_off" and not 1 <= value <= 100:
+        raise ValidationError("Percentage off must be from 1 to 100.")
+    if offer_type != "percent_off":
+        value = Decimal("0")
+    try:
+        items = json.loads(request.data.get("items", "[]"))
+    except (TypeError, ValueError):
+        raise ValidationError("Add valid offer items.")
+    if not isinstance(items, list) or not 1 <= len(items) <= 20:
+        raise ValidationError("Add between 1 and 20 items.")
+
+    cleaned = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValidationError("Each item needs a name and price.")
+        name = str(item.get("name", "")).strip()[:120]
+        if not name:
+            raise ValidationError("Add a name for every item.")
+        price = _dec(item.get("price", 0), "item price")
+        if price <= 0:
+            raise ValidationError("Item price must be greater than zero.")
+        offer_price = _dec(item.get("offer_price", 0) or 0, "offer price")
+        if offer_type == "fixed_price" and (offer_price <= 0 or offer_price > price):
+            raise ValidationError("Set a fixed offer price no higher than the item price.")
+        if offer_type != "fixed_price":
+            offer_price = Decimal("0")
+        image = request.FILES.get(f"image_{index}")
+        _offer_item_image(image)
+        cleaned.append((name, price, offer_price, image))
+
+    with transaction.atomic():
+        offer = ShopOffer.objects.create(business=biz, offer_type=offer_type, value=value)
+        for name, price, offer_price, image in cleaned:
+            ShopOfferItem.objects.create(offer=offer, name=name, price=price, offer_price=offer_price, image=image)
+    item_names = ", ".join(item[0] for item in cleaned[:3]) + (" and more" if len(cleaned) > 3 else "")
+    offer_label = f"{value}% off" if offer_type == "percent_off" else (
+        "fixed-price" if offer_type == "fixed_price" else "buy-one-get-one"
+    )
+    announce_shop_customers(
+        biz, f"New {offer_label} offer at {biz.name}: {item_names}.",
+        link=f"/b/{biz.shop_code}/",
+    )
+    offer = ShopOffer.objects.prefetch_related("items").get(pk=offer.pk)
+    return Response(ShopOfferSerializer(offer).data, status=201)
+
+
+@api_view(["PATCH", "DELETE"])
+def shop_offer_detail(request, code, pk):
+    biz = _owner_biz(request, code)
+    offer = get_object_or_404(ShopOffer, pk=pk, business=biz)
+    if request.method == "DELETE":
+        images = list(offer.items.exclude(image="").values_list("image", flat=True))
+        offer.delete()
+        for image in images:
+            default_storage.delete(image)
+        return Response(status=204)
+    if "active" not in request.data or not isinstance(request.data["active"], bool):
+        raise ValidationError({"active": "Choose whether this offer is active."})
+    offer.active = request.data["active"]
+    offer.save(update_fields=["active"])
+    return Response(ShopOfferSerializer(offer).data)
 
 
 # --------------------------------------------------------------------------- owner: boosts, perks, blueprints
@@ -298,11 +433,12 @@ def _perk(r):
 
 @api_view(["GET", "PUT"])
 def perks(request, code):
-    """Welcome reward (customer's first purchase) and referral reward (friend's first purchase)."""
+    """Configure welcome, referral, and social-follow rewards for a shop."""
     biz = _owner_biz(request, code)
     if request.method == "PUT":
+        new_perks = []
         with transaction.atomic():
-            for trig in ("welcome", "referral"):
+            for trig in ("welcome", "referral", "social"):
                 if trig not in request.data:
                     continue
                 d = request.data[trig]
@@ -328,11 +464,105 @@ def perks(request, code):
                     cur.save()
                 else:
                     Reward.objects.create(business=biz, trigger=trig, **fields)
+                    new_perks.append(title)
+        if new_perks:
+            names = ", ".join(new_perks)
+            announce_shop_customers(
+                biz, f"New reward at {biz.name}: {names}.",
+                link=f"/b/{biz.shop_code}/?tab=earn",
+            )
     out = {}
-    for trig in ("welcome", "referral"):
+    for trig in ("welcome", "referral", "social"):
         r = biz.perk_rewards.filter(trigger=trig).first()
         out[trig] = _perk(r) if r else None
     return Response(out)
+
+
+@api_view(["POST"])
+@transaction.atomic
+def social_follow_claim(request, code):
+    user = _customer(request)
+    biz = get_object_or_404(Business, shop_code=code)
+    if not biz.is_live:
+        raise ValidationError("This shop is not taking rewards right now.")
+    profile = get_object_or_404(
+        CustomerProfile.objects.select_for_update(), user=user, business=biz, status="active",
+    )
+    if not any(getattr(biz, field) for field in (
+        "instagram_url", "facebook_url", "youtube_url", "tiktok_url", "x_url",
+    )):
+        raise ValidationError("This shop has not added a social profile yet.")
+    if not biz.perk_rewards.filter(trigger="social").exists():
+        raise ValidationError("This shop has not set up a social follow reward.")
+    claim, created = SocialFollowClaim.objects.select_for_update().get_or_create(profile=profile)
+    if not created and claim.status in ("pending", "approved"):
+        raise ValidationError("You already have a social follow reward request for this shop.")
+    claim.status = "pending"
+    claim.requested_at = timezone.now()
+    claim.reviewed_at = None
+    claim.reviewed_by = None
+    claim.reward_grant = None
+    claim.save(update_fields=["status", "requested_at", "reviewed_at", "reviewed_by", "reward_grant"])
+    for manager in _managers(biz):
+        push(manager, f"{user.first_name or 'A customer'} requested the social follow reward at {biz.name}.",
+             link="/app/")
+    return Response({"status": claim.status}, status=201)
+
+
+@api_view(["GET"])
+def social_follow_claims(request, code):
+    biz = _mgr_biz(request, code)
+    claims = list(SocialFollowClaim.objects.filter(
+        profile__business=biz, status="pending"
+    ).select_related("profile__user").order_by("requested_at"))
+    reward = biz.perk_rewards.filter(trigger="social").first()
+    return Response({
+        "enabled": bool(claims),
+        "reward_configured": bool(reward),
+        "claims": [{
+            "id": claim.pk,
+            "name": claim.profile.user.first_name or "Customer",
+            "mobile_last4": claim.profile.user.username[-4:],
+            "requested_at": claim.requested_at,
+        } for claim in claims],
+    })
+
+
+@api_view(["POST"])
+@transaction.atomic
+def social_follow_claim_review(request, code, pk):
+    biz = _mgr_biz(request, code)
+    action = request.data.get("action")
+    if action not in ("approve", "reject"):
+        raise ValidationError("Choose approve or reject.")
+    claim = get_object_or_404(
+        SocialFollowClaim.objects.select_for_update().select_related("profile__user"),
+        pk=pk, profile__business=biz,
+    )
+    if claim.status != "pending":
+        raise ValidationError("This social follow request has already been reviewed.")
+    now = timezone.now()
+    title = ""
+    if action == "approve":
+        reward = biz.perk_rewards.filter(trigger="social").first()
+        if not reward:
+            raise ValidationError("Set up a social follow reward before approving this request.")
+        grant = RewardGrant.objects.create(
+            profile=claim.profile, reward=reward, expires_at=now + timedelta(days=reward.expiry_days),
+        )
+        claim.reward_grant = grant
+        claim.status = "approved"
+        title = reward.title
+        push(claim.profile.user, f"{biz.name}: Your social follow reward is ready: {title}. Code {grant.code}.",
+             link=f"/b/{biz.shop_code}/?tab=rewards")
+    else:
+        claim.status = "rejected"
+        push(claim.profile.user, f"{biz.name} could not verify your follow. Follow a listed profile and request again.",
+             link=f"/b/{biz.shop_code}/")
+    claim.reviewed_by = request.user
+    claim.reviewed_at = now
+    claim.save(update_fields=["status", "reward_grant", "reviewed_by", "reviewed_at"])
+    return Response({"status": claim.status, "reward_title": title})
 
 
 @api_view(["GET"])
@@ -341,12 +571,18 @@ def blueprint_list(request):
 
 
 @api_view(["POST"])
+@transaction.atomic
 def blueprint_apply(request, code):
     biz = _owner_biz(request, code)
     key = request.data.get("key")
     if key not in blueprints.BLUEPRINTS:
         raise ValidationError("Unknown business type.")
-    return Response(blueprints.apply(biz, key), status=201)
+    result = blueprints.apply(biz, key)
+    announce_shop_customers(
+        biz, f"New rewards are ready at {biz.name}. Visit the shop page to see them.",
+        link=f"/b/{biz.shop_code}/?tab=earn",
+    )
+    return Response(result, status=201)
 
 
 # --------------------------------------------------------------------------- services & bookings

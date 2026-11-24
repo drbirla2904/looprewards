@@ -1,6 +1,17 @@
 import re
+from urllib.parse import urlparse
 from rest_framework import serializers
-from .models import AuditLog, Booking, Boost, Business, Feedback, Program, PurchaseEntry, Reward, Service, Task
+from .models import (AuditLog, Booking, Boost, Business, Feedback, Program, PurchaseEntry, Reward, Service,
+                     ShopOffer, ShopOfferItem, Task)
+
+
+SOCIAL_URL_DOMAINS = {
+    "instagram_url": ("instagram.com",),
+    "facebook_url": ("facebook.com", "fb.com"),
+    "youtube_url": ("youtube.com", "youtu.be"),
+    "tiktok_url": ("tiktok.com",),
+    "x_url": ("x.com", "twitter.com"),
+}
 
 
 class BusinessSerializer(serializers.ModelSerializer):
@@ -21,6 +32,14 @@ class BusinessSerializer(serializers.ModelSerializer):
 
     def validate(self, d):
         inst = self.instance
+        lat = d.get("lat", inst.lat if inst else None)
+        lng = d.get("lng", inst.lng if inst else None)
+        if (lat is None) != (lng is None):
+            raise serializers.ValidationError({"lat": "Provide both latitude and longitude for a shop location."})
+        if lat is not None and not -90 <= lat <= 90:
+            raise serializers.ValidationError({"lat": "Latitude must be between -90 and 90."})
+        if lng is not None and not -180 <= lng <= 180:
+            raise serializers.ValidationError({"lng": "Longitude must be between -180 and 180."})
         silver = d.get("tier_silver_visits", inst.tier_silver_visits if inst else 5)
         gold = d.get("tier_gold_visits", inst.tier_gold_visits if inst else 15)
         if silver and gold and gold <= silver:
@@ -28,6 +47,14 @@ class BusinessSerializer(serializers.ModelSerializer):
         for k in ("phone", "whatsapp"):
             if d.get(k) and not re.fullmatch(r"\+?[0-9 ]{8,15}", d[k]):
                 raise serializers.ValidationError({k: "Enter a valid phone number."})
+        for field, domains in SOCIAL_URL_DOMAINS.items():
+            url = d.get(field, getattr(inst, field, "") if inst else "")
+            if not url:
+                continue
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme != "https" or not any(host == domain or host.endswith("." + domain) for domain in domains):
+                raise serializers.ValidationError({field: f"Use a valid HTTPS {field.removesuffix('_url')} profile URL."})
         return d
 
     class Meta:
@@ -36,6 +63,7 @@ class BusinessSerializer(serializers.ModelSerializer):
                   "pay_upi_id", "shop_code", "approval_mode", "cooldown_minutes", "daily_cap",
                   "require_bill_photo", "max_distance_m",
                   "brand_color", "logo", "logo_url", "about", "phone", "whatsapp", "maps_url",
+                  "instagram_url", "facebook_url", "youtube_url", "tiktok_url", "x_url",
                   "tier_silver_visits", "tier_gold_visits", "silver_perk", "gold_perk", "bookings_enabled"]
         read_only_fields = ["shop_code"]
         extra_kwargs = {"logo": {"write_only": True, "required": False}}
@@ -44,7 +72,27 @@ class BusinessSerializer(serializers.ModelSerializer):
 class RewardSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reward
-        fields = ["id", "title", "type", "value", "expiry_days", "terms"]
+        fields = ["id", "title", "type", "value", "expiry_days", "terms", "min_order_amount",
+                  "product_restrictions", "item_name", "original_price", "offer_price"]
+
+
+class ShopOfferItemSerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField()
+
+    def get_image(self, obj):
+        return obj.image.url if obj.image else ""
+
+    class Meta:
+        model = ShopOfferItem
+        fields = ["id", "name", "price", "offer_price", "image"]
+
+
+class ShopOfferSerializer(serializers.ModelSerializer):
+    items = ShopOfferItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ShopOffer
+        fields = ["id", "offer_type", "value", "active", "items"]
 
 
 class TaskSerializer(serializers.ModelSerializer):

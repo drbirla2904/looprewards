@@ -16,22 +16,22 @@ class Command(BaseCommand):
             st, left = s.state, end - now
             msg = None
             if st == "trial" and left <= timedelta(days=2):
-                kind, msg = "trial_2d", "Your Firaao free trial ends in 2 days. Subscribe to keep your QR and rewards live."
+                kind, msg = "trial_2d", "Your OFFLet free trial ends in 2 days. Subscribe to keep your QR and rewards live."
             elif st == "active" and left <= timedelta(days=7):
                 if s.rzp_sub_id and s.rzp_autorenew_active:  # AutoPay owners should not be told to renew by hand
-                    kind, msg = "autorenew_7d", f"Your Firaao plan renews automatically on {end:%d %b %Y}. Nothing to do."
+                    kind, msg = "autorenew_7d", f"Your OFFLet plan renews automatically on {end:%d %b %Y}. Nothing to do."
                 else:
-                    kind, msg = "renew_7d", f"Your Firaao plan expires on {end:%d %b %Y}. Renew from Billing to avoid a pause."
+                    kind, msg = "renew_7d", f"Your OFFLet plan expires on {end:%d %b %Y}. Renew from Billing to avoid a pause."
             elif st == "grace":
                 d = (now - end).days
                 kind = "grace_25" if d >= 25 else "grace_7" if d >= 7 else "paused"
-                msg = "Your Firaao plan expired and your shop page is paused. Renew to restore it instantly; your customers' progress is safe."
+                msg = "Your OFFLet plan expired and your shop page is paused. Renew to restore it instantly; your customers' progress is safe."
             elif st == "expired":
                 gone = end + timedelta(days=settings.GRACE_DAYS + 30 * settings.RETENTION_MONTHS)
                 out = (now - end).days - settings.GRACE_DAYS
                 back = f"We miss you! Your shop data is safe until {gone:%d %b %Y}. Renew any time to restore your QR, customers and rewards."
                 if gone - now <= timedelta(days=30):
-                    kind, msg = "purge_30d", f"Final notice: your Firaao shop data will be deleted on {gone:%d %b %Y}. Renew before then to keep it."
+                    kind, msg = "purge_30d", f"Final notice: your OFFLet shop data will be deleted on {gone:%d %b %Y}. Renew before then to keep it."
                 elif out >= 150:
                     kind, msg = "winback_150", back
                 elif out >= 60:

@@ -7,7 +7,7 @@ set -a
 set +a
 
 BRANCH="${BRANCH:-main}"
-SERVICE="${SERVICE:-firaao}"
+SERVICE="${SERVICE:-offlet}"
 APP_BIND_PORT="${APP_BIND_PORT:-18080}"
 PREVIOUS="$(git rev-parse HEAD)"
 
@@ -16,7 +16,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-sudo install -d -m 2750 -o firaao -g www-data /srv/firaao/looprewards/private-media
+sudo install -d -m 2750 -o offlet -g www-data /srv/offlet/offlet/private-media
 
 if systemctl is-active --quiet "$SERVICE"; then
   echo "Creating pre-upgrade database and media backup..."

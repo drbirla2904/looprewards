@@ -1,7 +1,9 @@
 (function () {
   const mobile = window.matchMedia("(max-width: 860px)");
-  const promptDateKey = "firaao-install-prompt-date";
-  const installedKey = "firaao-installed";
+  const promptDateKey = "offlet-install-prompt-date";
+  const installedKey = "offlet-installed";
+  const oldPromptDateKey = "firaao-install-prompt-date";
+  const oldInstalledKey = "firaao-installed";
   const localDate = () => {
     const now = new Date();
     return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
@@ -10,21 +12,37 @@
     try {
       return localStorage.getItem(key);
     } catch (error) {
-      console.error("Could not read Firaao install preferences.", error);
+      console.error("Could not read OFFLet install preferences.", error);
       return null;
     }
   };
   const savePreference = (key, value) => {
     try {
       localStorage.setItem(key, value);
+      return true;
     } catch (error) {
-      console.error("Could not save Firaao install preferences.", error);
+      console.error("Could not save OFFLet install preferences.", error);
+      return false;
     }
+  };
+  const migratePreference = (key, oldKey) => {
+    const current = readPreference(key);
+    if (current !== null) return current;
+    const old = readPreference(oldKey);
+    if (old === null) return null;
+    if (savePreference(key, old)) {
+      try {
+        localStorage.removeItem(oldKey);
+      } catch (error) {
+        console.error("Could not clear previous OFFLet install preferences.", error);
+      }
+    }
+    return old;
   };
   const installed = () => {
     const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
     if (standalone) savePreference(installedKey, "1");
-    return standalone || readPreference(installedKey) === "1";
+    return standalone || migratePreference(installedKey, oldInstalledKey) === "1";
   };
   let deferredPrompt = null;
   let dismissed = false;
@@ -32,9 +50,9 @@
   const banner = document.createElement("aside");
   banner.className = "install-prompt";
   banner.setAttribute("role", "region");
-  banner.setAttribute("aria-label", "Install Firaao");
-  banner.innerHTML = '<span class="install-prompt-mark" aria-hidden="true">F</span>' +
-    '<div class="install-prompt-copy"><strong>Get the Firaao app</strong>' +
+  banner.setAttribute("aria-label", "Install OFFLet");
+  banner.innerHTML = '<span class="install-prompt-mark" aria-hidden="true"><img src="/icon.svg" alt=""></span>' +
+    '<div class="install-prompt-copy"><strong>Get the OFFLet app</strong>' +
     '<p>Install for quick access from your home screen.</p>' +
     '<p class="install-prompt-help" hidden></p></div>' +
     '<button class="install-prompt-action" type="button">Install</button>' +
@@ -45,7 +63,7 @@
   const help = banner.querySelector(".install-prompt-help");
   const updateVisibility = () => {
     const date = localDate();
-    const shouldShow = mobile.matches && !installed() && !dismissed && readPreference(promptDateKey) !== date;
+    const shouldShow = mobile.matches && !installed() && !dismissed && migratePreference(promptDateKey, oldPromptDateKey) !== date;
     banner.hidden = !shouldShow;
     if (shouldShow) savePreference(promptDateKey, date);
   };
@@ -71,7 +89,7 @@
       const choice = await prompt.userChoice;
       if (choice.outcome === "dismissed") showInstructions();
     } catch (error) {
-      console.error("Could not open the Firaao install prompt.", error);
+      console.error("Could not open the OFFLet install prompt.", error);
       showInstructions();
     }
   });

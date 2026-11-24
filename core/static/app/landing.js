@@ -1,4 +1,4 @@
-/* Firaao landing page for logged-out visitors: hero + sign-in, how it works, features by audience, pricing, FAQ.
+/* OFFLet landing page for logged-out visitors: hero + sign-in, how it works, features by audience, pricing, FAQ.
    FX.authScreen stays the hero so referral links (?ref=) and partner sign-ups behave exactly as before. */
 (function (FX) {
   'use strict';
@@ -28,7 +28,7 @@
       ['📄', 'Ready marketing kit', 'A printable flyer with your own QR, WhatsApp messages and a 30-second pitch.'],
       ['🧾', 'Clear statements', 'Monthly payouts, TDS and a financial-year statement you can download.']]
   };
-  const FAQ = [['Do my customers need to install an app?', 'No. Customers scan your QR code and use Firaao in their phone browser. They can add it to the home screen if they like.'],
+  const FAQ = [['Do my customers need to install an app?', 'No. Customers scan your QR code and use OFFLet in their phone browser. They can add it to the home screen if they like.'],
     ['How does the free trial work?', 'You get {d} days free with no card needed. Everything works. Choose a plan any time before it ends.'],
     ['What if I stop paying?', 'Your shop page pauses, but your customers, progress and rewards are kept safe. Renew and everything comes back instantly.'],
     ['How do I pay?', 'Pay online with Razorpay (UPI, cards, netbanking), turn on AutoPay, or pay by UPI and upload the screenshot. Invoices include GST.'],
@@ -59,7 +59,7 @@
           h('button.btn.lg' + (best ? '.gold' : ''), { onclick: toStart }, t('Start free trial')));
       })))) : null;
     return h('div.land',
-      h('div.navbar', h('a.logo', { href: '/app/', style: 'padding:0' }, h('img', { src: '/icon.svg', alt: '' }), 'Firaao'), h('div.grow'),
+      h('div.navbar', h('a.logo', { href: '/app/', style: 'padding:0' }, h('img', { src: '/icon.svg', alt: '' }), 'OFFLet'), h('div.grow'),
         h('a.l', { href: '#how', onclick: jump('how') }, t('How it works')), h('a.l', { href: '#features', onclick: jump('features') }, t('Features')),
         plans ? h('a.l', { href: '#pricing', onclick: jump('pricing') }, t('Pricing')) : null, h('a.l', { href: '#faq', onclick: jump('faq') }, t('FAQ')),
         h('button.btn.ghost.sm', { onclick: () => { FX.setLang(FX.lang === 'hi' ? 'en' : 'hi'); FX.start(true); } }, FX.lang === 'hi' ? 'English' : 'हिन्दी'),

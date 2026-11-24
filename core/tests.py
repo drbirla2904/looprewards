@@ -3,6 +3,7 @@ from io import BytesIO
 import os
 import tempfile
 from unittest.mock import patch
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
@@ -642,6 +643,9 @@ class VendorTest(APITestCase):
 
     def test_vendor_profile_update_and_deletion_suspend_partner_access(self):
         vendor_user = User.objects.create_user("8888888879", "secret1", role="vendor")
+        vendor_user.email = "agent@example.test"
+        vendor_user.email_verified = True
+        vendor_user.save(update_fields=["email", "email_verified"])
         vendor = Vendor.objects.create(user=vendor_user, code="AGENT8", pan="ABCDE1234F",
                                        upi_id="agent@upi", status="approved")
         self.client.force_authenticate(user=vendor_user)
@@ -656,7 +660,10 @@ class VendorTest(APITestCase):
         self.assertEqual(vendor.upi_id, "updated@upi")
         self.assertEqual(self.client.delete("/api/me/").status_code, 204)
         vendor.refresh_from_db()
+        vendor_user.refresh_from_db()
         self.assertEqual(vendor.status, "suspended")
+        self.assertEqual(vendor_user.email, "")
+        self.assertFalse(vendor_user.email_verified)
 
     def test_commission_accrual_and_reversal(self):
         vu = User.objects.create_user("8888888888", password="x", role="vendor")
@@ -795,6 +802,15 @@ class ReportNotifyTest(APITestCase):
 
 
 class HindiPrintTest(APITestCase):
+    def test_offlet_app_branding(self):
+        icon = self.client.get("/icon.svg")
+        self.assertEqual(icon.status_code, 200)
+        self.assertEqual(icon["Content-Type"], "image/svg+xml")
+        self.assertIn(b'viewBox="0 0 128 128"', icon.content)
+        manifest = self.client.get("/manifest.json")
+        self.assertEqual(manifest.json()["name"], "OFFLet")
+        self.assertEqual(manifest.json()["short_name"], "OFFLet")
+
     def test_hindi_print_card(self):
         self._login = FlowTest._login.__get__(self)
         self._login("9000000003", "owner")
@@ -802,11 +818,12 @@ class HindiPrintTest(APITestCase):
         response = self.client.get(f"/print/{code}/?size=tent")
         html = response.content.decode()
         self.assertIn("स्कैन करें", html)
-        self.assertEqual(html.count(">Firaao</span>"), 2)
+        self.assertEqual(html.count(">OFFLet</span>"), 2)
         self.assertEqual(html.count('class="brand-mark"'), 2)
         self.assertEqual(html.count('<svg viewBox="0 0 40 40"'), 2)
+        self.assertIn('background:url("/icon.svg")', html)
 
-    def test_fir_aao_brand_is_on_all_shop_print_sizes(self):
+    def test_offlet_brand_is_on_all_shop_print_sizes(self):
         self._login = FlowTest._login.__get__(self)
         self._login("9000000003", "owner")
         code = self.client.post("/api/businesses/", {
@@ -817,7 +834,7 @@ class HindiPrintTest(APITestCase):
                 response = self.client.get(f"/print/{code}/?size={size}&bw=1")
                 html = response.content.decode()
                 panels = 2 if size == "tent" else 1
-                self.assertEqual(html.count(">Firaao</span>"), panels)
+                self.assertEqual(html.count(">OFFLet</span>"), panels)
                 self.assertEqual(html.count('class="brand-mark"'), panels)
                 self.assertEqual(html.count("Coffee and good company"), panels)
                 self.assertIn("Cafe &amp; coffee", html)
@@ -938,14 +955,77 @@ class SafetyFeaturesTest(APITestCase):
         self.assertFalse(User.objects.filter(username="9000000013").exists())
 
     def test_otp_reset(self):
-        User.objects.create_user("9000000012", password="oldpass1")
-        self.client.post("/api/auth/reset/request/", {"mobile": "9000000012"})
+        user = User.objects.create_user("9000000012", password="oldpass1", email="asha@example.test")
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+        with override_settings(
+            EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+            EMAIL_HOST="smtp.example.test",
+            DEFAULT_FROM_EMAIL="noreply@example.test",
+            EMAIL_OTP_ENABLED=True,
+        ):
+            self.client.post("/api/auth/reset/request/", {"mobile": "9000000012"})
         from .models import OtpCode
-        o = OtpCode.objects.get()
+        self.assertEqual(mail.outbox[-1].to, ["asha@example.test"])
+        o = OtpCode.objects.get(user=user, purpose="password_reset")
         o.code_hash = __import__("core.extras", fromlist=["_h"])._h("123456"); o.save()
         self.assertEqual(self.client.post("/api/auth/reset/confirm/", {"mobile": "9000000012", "otp": "000000", "new": "newpass1"}).status_code, 400)
         self.assertEqual(self.client.post("/api/auth/reset/confirm/", {"mobile": "9000000012", "otp": "123456", "new": "newpass1"}).status_code, 200)
-        self.assertEqual(self.client.post("/api/auth/login/", {"username": "9000000012", "password": "newpass1"}).status_code, 200)
+        self.assertEqual(self.client.post("/api/auth/login/", {"mobile": "9000000012", "password": "newpass1"}).status_code, 200)
+
+    @patch("core.extras.notify")
+    @override_settings(NOTIFY_WEBHOOK_URL="https://sms.example.test")
+    def test_password_reset_uses_sms_when_a_gateway_is_configured(self, send_sms):
+        user = User.objects.create_user("9000000015", password="oldpass1")
+        response = self.client.post("/api/auth/reset/request/", {"mobile": user.username})
+        self.assertEqual(response.status_code, 200)
+        send_sms.assert_called_once()
+        from .models import OtpCode
+        self.assertTrue(OtpCode.objects.filter(user=user, purpose="password_reset").exists())
+
+    def test_password_reset_does_not_send_to_an_unverified_email(self):
+        user = User.objects.create_user("9000000016", password="oldpass1", email="unverified@example.test")
+        with override_settings(
+            EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+            EMAIL_HOST="smtp.example.test",
+            DEFAULT_FROM_EMAIL="noreply@example.test",
+            EMAIL_OTP_ENABLED=True,
+        ):
+            response = self.client.post("/api/auth/reset/request/", {"mobile": user.username})
+        self.assertEqual(response.status_code, 200)
+        from .models import OtpCode
+        self.assertFalse(OtpCode.objects.filter(user=user, purpose="password_reset").exists())
+
+    def test_recovery_email_is_not_changed_until_otp_is_confirmed(self):
+        user = User.objects.create_user("9000000014", password="oldpass1", email="old@example.test")
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+        self.client.force_authenticate(user=user)
+        with override_settings(
+            EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+            EMAIL_HOST="smtp.example.test",
+            DEFAULT_FROM_EMAIL="noreply@example.test",
+            EMAIL_OTP_ENABLED=True,
+        ):
+            response = self.client.post("/api/auth/email/request/", {"email": "new@example.test"}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(mail.outbox[-1].to, ["new@example.test"])
+        user.refresh_from_db()
+        self.assertEqual(user.email, "old@example.test")
+        self.assertTrue(user.email_verified)
+        from .models import OtpCode
+        from .extras import _h
+        otp = OtpCode.objects.get(user=user, purpose="email_verify")
+        self.assertEqual(otp.target_email, "new@example.test")
+        otp.code_hash = _h("123456")
+        otp.save(update_fields=["code_hash"])
+
+        confirmed = self.client.post("/api/auth/email/confirm/", {"otp": "123456"}, format="json")
+        self.assertEqual(confirmed.status_code, 200, confirmed.data)
+        user.refresh_from_db()
+        self.assertEqual(user.email, "new@example.test")
+        self.assertTrue(user.email_verified)
+        self.assertEqual(self.client.get("/api/me/profile/").data["email"], "new@example.test")
 
 
 class LifecycleLegalTest(APITestCase):

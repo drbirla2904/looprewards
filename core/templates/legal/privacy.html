@@ -1,6 +1,6 @@
 {% extends "legal/base.html" %}{% block title %}Privacy Policy{% endblock %}{% block body %}
 <h1>Privacy Policy</h1><p>Last updated: {{ c.updated }}</p>
-<p>{{ c.name }} ("we", "us") runs Firaao, a loyalty platform that connects local shops and their customers. We follow the Digital Personal Data Protection Act, 2023 and the Information Technology Act, 2000. This policy explains what we collect, why, and your choices.</p>
+<p>{{ c.name }} ("we", "us") runs OFFLet, a loyalty platform that connects local shops and their customers. We follow the Digital Personal Data Protection Act, 2023 and the Information Technology Act, 2000. This policy explains what we collect, why, and your choices.</p>
 <h2>1. Who is who</h2>
 <p>For your account and for running the platform we decide how your data is used (we are the "data fiduciary"). When you join a shop, that shop receives your name and mobile number and uses them for its own reward programme. Each shop is an independent business; contact the shop about how it uses your details.</p>
 <h2>2. What we collect</h2>
@@ -8,12 +8,13 @@
 <tr><td>Customers</td><td>Name, mobile number, password (stored only as a one-way hash), optional profile photo, the shops you join, your purchase entries, progress and rewards, notification history, optional bill photo, and your phone's location at the moment you submit a purchase.</td><td>To run your account, help shop staff verify purchase submissions, count your purchases, give rewards and prevent fake claims. A shop sees your profile photo only when you submit a purchase there. The location is only used to check you are near the shop; we store the resulting distance, not your coordinates.</td></tr>
 <tr><td>Shop owners and staff</td><td>Name, mobile number, shop details (name, address, location, hours, UPI ID), customer list and reports for your shop, subscription and invoice records.</td><td>To run your shop page and rewards, bill your subscription and issue GST invoices.</td></tr>
 <tr><td>Agents</td><td>Name, mobile number, PAN, UPI ID, referrals, commission and payout records.</td><td>To verify you, attribute shops and pay commission.</td></tr>
+<tr><td>Any account holder (optional)</td><td>Verified recovery email address.</td><td>To send password-reset codes when SMS delivery is unavailable.</td></tr>
 <tr><td>Everyone</td><td>Technical data such as IP address, device/browser type and error logs; your language choice and login token stored in your browser.</td><td>Security, fraud prevention, fixing problems.</td></tr></table>
 <p>We do not collect card, bank or UPI credentials: payments to a shop go directly to the shop's UPI, and subscription payments are handled by Razorpay.</p>
 <h2>3. Legal basis and consent</h2>
 <p>We process your data with your consent (given when you register, join a shop or tick a box) and for legitimate uses permitted by law, such as security, accounting and legal compliance. Offers from a shop are sent only if you tick "Send me offers from this shop"; you can untick it at any time.</p>
 <h2>4. Who we share data with</h2>
-<p>We never sell your data. We share only what is needed with: (a) the shop you join (your name, mobile number, purchase history with that shop and, when you submit a purchase, your optional profile photo for verification); (b) Razorpay, for subscription payments; (c) our SMS/WhatsApp provider, for OTPs and alerts; (d) our hosting provider and, if used, a security/CDN provider; (e) an error-monitoring service, configured not to send personal data; (f) authorities where the law requires. Agents never see customer data or passwords.</p>
+<p>We never sell your data. We share only what is needed with: (a) the shop you join (your name, mobile number, purchase history with that shop and, when you submit a purchase, your optional profile photo for verification); (b) Razorpay, for subscription payments; (c) our SMS/WhatsApp provider, for OTPs and alerts; (d) our email provider, only to deliver recovery-email verification and password-reset codes; (e) our hosting provider and, if used, a security/CDN provider; (f) an error-monitoring service, configured not to send personal data; (g) authorities where the law requires. Agents never see customer data or passwords.</p>
 <h2>5. How long we keep data</h2>
 <ul><li>Customer accounts: until you delete your account.</li>
 <li>Shop data (customers, entries, rewards): while the shop's subscription is active, during the {{ grace }}-day pause period after it ends, and for {{ retention }} months after that, then it is permanently deleted unless the shop renews.</li>
@@ -22,7 +23,7 @@
 <h2>6. Your rights</h2>
 <p>You may ask to access, correct or erase your data, withdraw consent, or complain. In the app, "Delete my account" erases a customer account immediately (shop owners' and agents' accounts are anonymised, and billing records we must keep are retained). For anything else write to the Grievance Officer below; we aim to reply within 7 days and resolve within 30 days. You may also approach the Data Protection Board of India once it is operational.</p>
 <h2>7. Children</h2>
-<p>Firaao is meant for people aged 18 and over. We do not knowingly collect data of children; if you believe a child has registered, tell us and we will delete the account.</p>
+<p>OFFLet is meant for people aged 18 and over. We do not knowingly collect data of children; if you believe a child has registered, tell us and we will delete the account.</p>
 <h2>8. Security</h2>
 <p>We use HTTPS, hashed passwords, rate limits, access controls and backups. No system is perfectly secure. If a breach affecting your data occurs, we will notify you and the authorities as the law requires.</p>
 <h2>9. Where data is stored</h2><p>Our servers are located in: {{ c.hosting }}. Some providers named above may process data outside India.</p>

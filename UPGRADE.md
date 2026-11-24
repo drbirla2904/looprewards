@@ -1,4 +1,4 @@
-# Firaao v2 upgrade
+# OFFLet v2 upgrade
 
 Goal: turn the loyalty tool into a SaaS platform that helps **local shops and service businesses bring customers back**,
 using rewards, tasks, boosts, referrals and bookings. The existing API is unchanged (everything is additive), so old
@@ -118,7 +118,7 @@ UPI-app design language: violet brand (#5e35b1), Inter + Noto Sans Devanagari, o
 22px cards with soft shadows, violet header, white bottom tabs with an active bar, icon-tile quick actions (customer home, owner Today),
 and a header "Aa" control that scales text (normal / large / extra large). All colours are tokens at the top of the v2.2 block in `app.css`.
 New default shop colour is violet; migration 0011 moves only shops still on the old default teal (reversible). Razorpay popup and PWA theme follow.
-Not copied: any third-party logo, name, exact brand colour or proprietary font. Firaao name and mark are kept.
+Not copied: any third-party logo, name, exact brand colour or proprietary font. OFFLet name and mark are kept.
 
 ## v2.2.1 — print, invoice and public pages in the new style
 Shop print card (A6/A5/A4/table tent): violet brand mark, accent band, pill "Scan" button, Inter type; each business category keeps its own accent
@@ -126,7 +126,7 @@ colour (the generic category now uses violet). QR codes stay black on white so t
 PAID stamp, big total, print-ready A4. Partner flyer, legal/policy pages, and the app icon follow the same palette.
 
 ## v2.3.0
-**AutoPay for subscription plans:** works with only RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET. Firaao creates the Razorpay monthly + yearly plans itself on first
+**AutoPay for subscription plans:** works with only RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET. OFFLet creates the Razorpay monthly + yearly plans itself on first
 use (`GatewayPlan`, migration 0012) and re-creates one if the price changes; `python manage.py sync_razorpay_plans` pre-creates them. Plan IDs in the
 environment still win. Webhooks map auto-created plans too. Billing screen leads with a "Never miss a renewal" AutoPay card (no charge before the
 trial/period ends). In the Razorpay dashboard, enable webhook events: subscription.charged, subscription.halted, subscription.cancelled, payment.captured, payment.failed.
