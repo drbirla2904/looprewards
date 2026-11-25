@@ -61,15 +61,26 @@
   /* ---------- Today: the action queue ---------- */
   const typeVal = e => (e.task_type === 'amount' ? FX.rupee(e.value) : e.task_type === 'count' ? '×' + FX.num(e.value) : t('Visit'));
   function queueRow(e, onDone) {
-    const act = a => b => busy(b.target, async () => {
-      await api('entries/' + e.id + '/review/', 'POST', { action: a });
+    const review = (action, button, close) => busy(button.currentTarget || button.target, async () => {
+      await api('entries/' + e.id + '/review/', 'POST', { action });
+      if (close) close();
       onDone();
-      if (a === 'approve') toast(t('Approved: {c}', { c: e.customer || '…' }), false, { label: t('Undo'), fn: async () => { try { await api('entries/' + e.id + '/reverse/', 'POST'); toast(t('Undone')); onDone(); } catch (x) { toast(x.message, true); } } });
+      if (action === 'approve') toast(t('Approved: {c}', { c: e.customer || '…' }), false, { label: t('Undo'), fn: async () => { try { await api('entries/' + e.id + '/reverse/', 'POST'); toast(t('Undone')); onDone(); } catch (x) { toast(x.message, true); } } });
     });
+    const act = a => b => review(a, b);
+    const showBill = () => {
+      let m;
+      m = modal(t('Purchase bill'), h('div.stack', h('div.center', h('img', {
+        src: e.bill_url, alt: t('Customer purchase bill'), style: 'display:block;width:auto;max-width:100%;max-height:52vh;margin:0 auto;object-fit:contain;border-radius:10px'
+      })), h('div.approval-actions',
+        h('button.btn.ghost', { onclick: b => review('reject', b, () => m.close()) }, t('Decline')),
+        h('button.btn', { onclick: b => review('approve', b, () => m.close()) }, t('Approve')))), { style: 'width:min(92vw,640px);max-height:85vh' });
+    };
     return h('div.li', FX.avatar(e.customer, e.customer_image_url), h('div.grow', h('b', e.customer || t('Customer')), h('div.small.muted', e.task_title + ' · ' + typeVal(e) + ' · ' + FX.ago(e.created_at)),
       e.far ? h('div', pill(t('Far from shop ({m} m)', { m: Math.round(e.distance_m || 0) }), 'warn')) : null,
-      e.bill_url ? h('a.small', { href: e.bill_url, target: '_blank', rel: 'noopener' }, t('View bill')) : null),
-      h('button.btn.ghost.sm', { onclick: act('reject') }, t('Decline')), h('button.btn.sm', { onclick: act('approve') }, t('Approve')));
+      e.bill_url ? h('button.btn.ghost.sm', { type: 'button', onclick: showBill }, t('View bill')) : null),
+      h('div.approval-actions', h('button.btn.ghost.sm', { onclick: act('reject') }, t('Decline')),
+        h('button.btn.sm', { onclick: act('approve') }, t('Approve'))));
   }
   /* two steps so the wrong customer or reward is never redeemed: look up, check, then confirm */
   function redeemBox() {

@@ -7,7 +7,8 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from . import vendors
-from .models import Business, Commission, Notification, Payment, Payout, User, Vendor
+from .models import (Business, BusinessReferralSettings, Commission, Notification, Payment, Payout, Subscription,
+                     User, Vendor, get_sub)
 
 
 class OwnerReferralBase(APITestCase):
@@ -78,6 +79,10 @@ class WalletTests(OwnerReferralBase):
     def setUp(self):
         self.referrer = self.make_owner("9310000001", upi="refshop@upi")
         self.v = self.enrol(self.referrer, upi="ref@upi")
+        subscription = get_sub(self.referrer)
+        subscription.paid_until = timezone.now() + timedelta(days=365)
+        subscription.save(update_fields=["paid_until"])
+        Payment.objects.create(owner=self.referrer, plan="yearly", amount=299900, method="gateway", status="paid")
         self.friend = self.make_owner("9310000002", upi="friend@upi", referred_by=self.v)
 
     def amount(self):
@@ -100,6 +105,21 @@ class WalletTests(OwnerReferralBase):
         vendors.accrue(p)
         self.assertEqual(Commission.objects.count(), 1)
         self.assertEqual(Notification.objects.filter(user=self.referrer, text__contains="You earned").count(), 1)
+
+    def test_owner_referral_earning_stops_when_yearly_plan_expires(self):
+        Subscription.objects.filter(owner=self.referrer).update(paid_until=timezone.now() - timedelta(seconds=1))
+        self.pay(self.friend)
+        self.assertEqual(Commission.objects.count(), 0)
+
+    def test_owner_referral_requires_yearly_plan_not_monthly(self):
+        Payment.objects.create(owner=self.referrer, plan="monthly", amount=29900, method="gateway", status="paid")
+        self.pay(self.friend)
+        self.assertEqual(Commission.objects.count(), 0)
+
+    def test_superadmin_program_switch_stops_new_owner_referral_earning(self):
+        BusinessReferralSettings.objects.filter(pk=1).update(enabled=False)
+        self.pay(self.friend)
+        self.assertEqual(Commission.objects.count(), 0)
 
     def test_buckets_move_from_clearing_to_ready_to_processing_to_paid(self):
         self.pay(self.friend)

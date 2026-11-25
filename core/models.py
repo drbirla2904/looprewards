@@ -231,6 +231,15 @@ class Subscription(models.Model):
         return "grace" if now <= end + timedelta(days=settings.GRACE_DAYS) else "expired"
 
 
+class BusinessReferralSettings(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    enabled = models.BooleanField(
+        default=True,
+        help_text="Allow business owners to earn referral commissions. Owners also need an active yearly plan.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class GatewayPlan(models.Model):
     """A Razorpay plan OFFLet created itself, so AutoPay works with only the API keys (no copying plan IDs by hand).
     A new row replaces the old one if the price in settings changes."""

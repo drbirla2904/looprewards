@@ -10,7 +10,8 @@ from django.utils import timezone
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
-from .models import Business, Commission, Payment, Payout, Subscription, User, Vendor, get_sub, new_shop_code
+from .models import (Business, BusinessReferralSettings, Commission, Payment, Payout, Subscription, User, Vendor,
+                     get_sub, new_shop_code)
 
 
 def active_paying_shops(v):
@@ -34,6 +35,19 @@ def effective_rate(v):
     return Decimal(v.rate) + Decimal(tier_for(v)["bonus"])
 
 
+def business_referral_eligibility(v):
+    """Return whether an owner can currently earn from businesses they referred."""
+    enabled = BusinessReferralSettings.objects.get_or_create(pk=1)[0].enabled
+    subscription = Subscription.objects.filter(owner=v.user, paid_until__gt=timezone.now()).first()
+    latest_payment = Payment.objects.filter(owner=v.user, status="paid").order_by("-id").first()
+    yearly_plan_active = bool(subscription and latest_payment and latest_payment.plan == "yearly")
+    return {
+        "enabled": enabled and yearly_plan_active,
+        "program_enabled": enabled,
+        "yearly_plan_active": yearly_plan_active,
+    }
+
+
 def _upi_ids(user):
     return {b.pay_upi_id.strip().lower() for b in user.businesses.all() if b.pay_upi_id.strip()}
 
@@ -42,6 +56,8 @@ def accrue(p):
     """Called when a payment is marked paid. Never on trials; single level; idempotent."""
     v = Vendor.objects.filter(pk=p.owner.referred_by_id, status="approved").select_related("user").first()
     if not v or v.user_id == p.owner_id:
+        return
+    if v.user.role == "owner" and not business_referral_eligibility(v)["enabled"]:
         return
     # self-referral guard: the partner's payout UPI or any of the partner's own shop UPIs must not match the payer's
     mine = {v.upi_id.strip().lower()} | _upi_ids(v.user)
@@ -121,6 +137,8 @@ def dashboard(request):
     out = {"status": v.status, "code": v.code, "rate": v.rate, "effective_rate": effective_rate(v), "tier": tier_for(v),
            "name": request.user.first_name, "pan": v.pan, "upi_id": v.upi_id,
            "mobile": request.user.username, "applied_at": v.applied_at}
+    if v.user.role == "owner":
+        out["business_referral_earning"] = business_referral_eligibility(v)
     if v.status != "approved":
         return Response(out)
     totals = dict(v.commissions.values("status").annotate(total=Sum("amount")).values_list("status", "total"))

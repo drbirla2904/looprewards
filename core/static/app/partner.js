@@ -7,7 +7,7 @@
 
   function applyForm(me, asOwner) {
     const pan = inp({ maxlength: 10, autocapitalize: 'characters', ph: 'ABCDE1234F' }), upi = inp({ ph: 'yourname@upi' }), err = h('div.err');
-    return h('div.stack.l', { style: 'max-width:560px' }, h('div', h('h1', t(asOwner ? 'Refer and earn' : 'Become a partner')), h('p.muted', t(asOwner ? 'Refer other businesses to OFFLet and earn a commission in your wallet every time they pay.' : 'Earn a commission every time a shop you bring pays for OFFLet.'))),
+    return h('div.stack.l', { style: 'max-width:560px' }, h('div', h('h1', t(asOwner ? 'Refer and earn' : 'Become a partner')), h('p.muted', t(asOwner ? 'Refer other businesses to OFFLet and earn commissions while you have an active yearly plan.' : 'Earn a commission every time a shop you bring pays for OFFLet.'))),
       h('div.card.stack', field('PAN', pan, 'Needed for TDS and payouts.'), field('UPI ID for payouts', upi), err,
         h('button.btn.lg', { onclick: e => busy(e.target, async () => { try { const r = await api('vendor/apply/', 'POST', { pan: pan.value, upi_id: upi.value }); toast(t(r.detail)); FX.render(); } catch (x) { err.textContent = x.message; } }) }, t('Apply'))));
   }
@@ -71,9 +71,11 @@
     if (d.status !== 'approved') return h('div.stack.l', h('h1', t('Application received')), h('div.banner.blue', t('We are reviewing your application. You will be notified once it is approved.')));
     const c = d.commission_paise, url = d.referral_url;
     const text = t('Grow your shop with repeat customers using OFFLet. Join here:');
+    const earning = d.business_referral_earning;
     const shops = d.businesses.slice().sort((a, b) => (ORDER[a.health] - ORDER[b.health]));
     const needs = shops.filter(b => b.health !== 'live' || b.state === 'expired' || b.state === 'grace').length;
     return h('div.stack.l', h('div.hd', h('div', h('h1', t('Partner dashboard')), h('p.muted', t('Earn on every subscription payment from the shops you bring'))), h('button.btn', { onclick: () => assistModal(() => FX.render(true)) }, '+ ' + t('Onboard a shop'))),
+      earning && !earning.enabled ? h('div.banner.blue', t(earning.program_enabled ? 'Your referral commissions are paused. Subscribe to an active yearly plan to earn from businesses you refer.' : 'Business referral commissions are currently disabled by the platform administrator.')) : null,
       tierCard(d),
       h('div.card.stack', h('h3', t('Your referral link')), h('code', { style: 'word-break:break-all' }, url), h('div.row.wrap', h('button.btn', { onclick: () => FX.share(text, url) }, t('Share on WhatsApp')), h('button.btn.ghost', { onclick: () => FX.copy(url) }, t('Copy link')), h('a.btn.ghost', { href: '#/kit' }, t('Marketing kit')))),
       h('div.g4', kpi('Owners referred', d.referred_owner_count), kpi('Shops live', d.referred_shop_count), kpi('Ready to pay', paise(c.payable)), kpi('Paid so far', paise(c.paid), t('On hold: {a}', { a: paise(c.hold) }))),
@@ -151,8 +153,13 @@
     if (d.status === 'suspended') return h('div.stack.l', h('h1', t('Refer and earn')), h('div.banner.blue', t('Your referral access is paused. Please contact support.')));
     if (d.status !== 'approved') return h('div.stack.l', h('h1', t('Application received')), h('div.banner.blue', t('We are reviewing your application. You will be notified once it is approved.')));
     const url = d.referral_url, text = t('I use OFFLet to bring customers back to my shop. Try it free:');
+    const earning = d.business_referral_earning;
     const shops = d.businesses.slice().sort((a, b) => (ORDER[a.health] - ORDER[b.health]));
     return h('div.stack.l', h('div', h('h1', t('Refer and earn')), h('p.muted', t('Earn money in your wallet every time a business you refer pays for OFFLet'))),
+      h('div.banner.blue', t('Business owners need an active yearly OFFLet plan to earn commissions from businesses they refer. Earnings pause if the plan expires or ends.')),
+      !earning.program_enabled ? h('div.banner.blue', t('Business referral commissions are currently disabled by the platform administrator.'))
+        : !earning.yearly_plan_active ? h('div.banner.blue', t('Subscribe to an active yearly OFFLet plan to start earning from businesses you refer.'))
+          : h('div.banner.green', t('Your active yearly plan qualifies you to earn from businesses you refer.')),
       walletCard(w), tierCard(d),
       h('div.card.stack', h('h3', t('Your referral link')), h('code', { style: 'word-break:break-all' }, url),
         h('div.row.wrap', h('button.btn', { onclick: () => FX.share(text, url) }, t('Share on WhatsApp')), h('button.btn.ghost', { onclick: () => FX.copy(url) }, t('Copy link')), h('a.btn.ghost', { href: '#/kit' }, t('Marketing kit')), h('a.btn.ghost', { href: '#/statements' }, t('Earnings statement')))),

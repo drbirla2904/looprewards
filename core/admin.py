@@ -139,3 +139,25 @@ class SubscriptionAdmin(admin.ModelAdmin):  # use for win-back calls: sort by pa
     @admin.display(description="state")
     def state_now(self, o):
         return o.state
+
+
+@admin.register(models.BusinessReferralSettings)
+class BusinessReferralSettingsAdmin(admin.ModelAdmin):
+    list_display = ("updated_at", "enabled")
+    list_editable = ("enabled",)
+    readonly_fields = ("updated_at",)
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser and not models.BusinessReferralSettings.objects.exists()
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False

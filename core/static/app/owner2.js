@@ -178,6 +178,16 @@
     const theme = QR_CARD_THEMES[b.category] || QR_CARD_THEMES.other;
     const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
     const rr = (px, py, w, hh, r) => { x.beginPath(); x.roundRect ? x.roundRect(px, py, w, hh, r) : x.rect(px, py, w, hh); };
+    const feature = (icon, title, detail, px, py) => {
+      x.save();
+      x.fillStyle = theme.soft; rr(px, py, 210, 150, 30); x.fill();
+      x.strokeStyle = theme.accent + '35'; x.lineWidth = 3; rr(px, py, 210, 150, 30); x.stroke();
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = '700 52px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillStyle = theme.accent; x.fillText(icon, px + 105, py + 40);
+      x.fillStyle = '#1c1530'; x.font = '800 23px ' + FONT; x.fillText(title, px + 105, py + 91);
+      x.fillStyle = '#6b6485'; x.font = '500 18px ' + FONT; x.fillText(detail, px + 105, py + 122);
+      x.restore();
+    };
     const backdrop = x.createLinearGradient(0, 0, W, H); backdrop.addColorStop(0, brand); backdrop.addColorStop(1, theme.accent);
     x.fillStyle = backdrop; x.fillRect(0, 0, W, H);
     x.fillStyle = '#fff'; rr(48, 48, W - 96, 1464, 56); x.fill();
@@ -207,8 +217,14 @@
     x.fillStyle = '#1c1530'; let size = 68, lines; do { x.font = '800 ' + size + 'px ' + FONT; lines = wrapText(x, b.name, 860, 2); size -= 4; } while (lines.length > 1 && size > 44 && lines.some(l => x.measureText(l).width > 860));
     lines = wrapText(x, b.name, 860, 2); let y = 318; lines.forEach(l => { x.fillText(l, W / 2, y); y += size + 18; });
     if (b.tagline) { x.fillStyle = '#6b6485'; x.font = '500 32px ' + FONT; wrapText(x, b.tagline, 860, 1).forEach(l => { x.fillText(l, W / 2, y + 4); y += 40; }); }
+    /* Fixed feature callouts frame the same centered QR on every shop's card. */
+    const qy = Math.max(y + 30, 500), qs = 420, featureX = 88;
+    const featureBottom = qy + qs - 150;
+    feature('🎁', hi ? 'रिवॉर्ड पाएँ' : 'Earn Rewards', hi ? 'स्टैम्प जमा करें' : 'Collect stamps', featureX, qy + 4);
+    feature('🎡', hi ? 'स्पिन करें' : 'Spin & Win', hi ? 'इनाम जीतें' : 'Spin for a prize', W - featureX - 210, qy + 4);
+    feature('📣', hi ? 'ऑफ़र देखें' : 'Shop Offers', hi ? 'खास डील पाएँ' : 'Discover shop deals', featureX, featureBottom);
+    feature('💰', hi ? 'रेफ़र करें' : 'Refer & Earn', hi ? 'दोस्तों को बुलाएँ' : 'Share the rewards', W - featureX - 210, featureBottom);
     /* QR in a brand-coloured frame */
-    const qy = Math.max(y + 24, 470), qs = 600;
     x.fillStyle = theme.soft; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.fill();
     x.strokeStyle = theme.accent; x.lineWidth = 8; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.stroke();
     x.imageSmoothingEnabled = false; x.drawImage(qr, W / 2 - qs / 2, qy, qs, qs);
@@ -327,7 +343,18 @@
     const s = await FX.loadSub();
     const plan = k => s.plans[k];
     const checkout = k => async e => busy(e.target, async () => {
-      const order = await api('billing/order/', 'POST', { plan: k }); await loadRz();
+      let order;
+      try {
+        order = await api('billing/order/', 'POST', { plan: k });
+        await loadRz();
+      } catch (x) {
+        if (methods.upi) {
+          toast(t('Razorpay is unavailable. Continue with UPI and submit your screenshot for approval.'));
+          payUpi(k);
+          return;
+        }
+        throw x;
+      }
       const widget = new window.Razorpay({ key: order.key, order_id: order.order_id, amount: order.amount,
         currency: order.currency, name: 'OFFLet', description: plan(k).label, theme: { color: '#5e35b1' },
         handler: async resp => { try { await api('billing/verify/', 'POST', resp); toast(t('Payment received. Thank you!')); await FX.loadSub(); FX.render(); } catch (x) { toast(x.message, true); } } });
@@ -381,9 +408,10 @@
         h('small.muted', best ? t('Just {a} a month. Includes GST.', { a: FX.rupee(Math.round(per)) }) : t('Includes GST. {n} days.', { n: p.days })),
         h('ul', FEATURES.map(f => h('li', t(f)))),
         methods.online ? h('button.btn.lg' + (best ? '.gold' : ''), { onclick: checkout(k) }, t('Pay securely with Razorpay')) : null,
-        methods.upi ? h('button.btn.ghost', { onclick: () => payUpi(k) }, t('Pay by UPI and upload screenshot')) : null,
+        methods.upi ? h('button.btn' + (!methods.online && best ? '.gold' : '.ghost'), { onclick: () => payUpi(k) },
+          t(methods.online ? 'Pay by UPI and upload screenshot' : 'Pay by UPI and upload screenshot for approval')) : null,
         s.autopay && !s.autorenew && !s.autopay_pending ? h('button.btn.ghost', { onclick: subscribe(k) }, t('Enable AutoPay')) : null,
-        !methods.online && !methods.upi && !s.autopay ? h('p.small.muted', t('Online payments are not set up yet. Please contact support.')) : null);
+        !methods.online && !methods.upi ? h('p.small.muted', t('Online payments are not set up yet. Please contact support.')) : null);
     };
     /* AutoPay first: set it up once, never think about renewals again. No charge before the current period ends. */
     const firstCharge = s.state === 'trial' ? t('Nothing is charged until your free trial ends on {d}.', { d: FX.fmtDate(s.ends) })

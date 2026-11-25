@@ -95,6 +95,15 @@ def upi_link(plan, owner_id):
     return "upi://pay?" + q
 
 
+def donation_upi_link(amount_paise, donor_id):
+    if not settings.PLATFORM_UPI_ID:
+        raise ValidationError("Manual UPI donations are not configured.")
+    q = urllib.parse.urlencode({"pa": settings.PLATFORM_UPI_ID, "pn": settings.PLATFORM_UPI_NAME,
+        "am": f"{amount_paise // 100}.{amount_paise % 100:02d}", "cu": "INR",
+        "tn": f"OFFLet donation {donor_id}"})
+    return "upi://pay?" + q
+
+
 @api_view(["GET"])
 def status(request):
     s = get_sub(request.user)
@@ -189,8 +198,6 @@ def verify(request):
 def donation_order(request):
     if request.user.role != "customer":
         raise PermissionDenied("Customer account required.")
-    if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
-        raise ValidationError("Online donations are not configured.")
     try:
         amount = Decimal(str(request.data.get("amount", "")))
     except (InvalidOperation, ValueError, TypeError) as exc:
@@ -199,15 +206,24 @@ def donation_order(request):
             or amount * 100 != (amount * 100).to_integral_value()):
         raise ValidationError({"amount": "Enter a donation from ₹1 to ₹100,000, in whole paise."})
     amount_paise = int(amount * 100)
-    order = _rzp_post("orders", {"amount": amount_paise, "currency": "INR",
-        "receipt": f"offlet-{uuid.uuid4().hex[:16]}",
-        "notes": {"purpose": "voluntary_support", "donor_id": str(request.user.pk)}})
+    if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
+        return Response({"method": "upi", "upi_link": donation_upi_link(amount_paise, request.user.pk)}, status=200)
+    try:
+        order = _rzp_post("orders", {"amount": amount_paise, "currency": "INR",
+            "receipt": f"offlet-{uuid.uuid4().hex[:16]}",
+            "notes": {"purpose": "voluntary_support", "donor_id": str(request.user.pk)}})
+    except ValidationError:
+        if not settings.PLATFORM_UPI_ID:
+            raise
+        return Response({"method": "upi", "upi_link": donation_upi_link(amount_paise, request.user.pk)}, status=200)
     order_id = order.get("id")
     if not order_id:
         raise ValidationError("The payment service did not return an order. Please try again.")
     Donation.objects.create(donor=request.user, amount=amount_paise, order_id=order_id)
-    return Response({"order_id": order_id, "amount": amount_paise, "currency": "INR",
-        "key": settings.RAZORPAY_KEY_ID}, status=201)
+    response = {"order_id": order_id, "amount": amount_paise, "currency": "INR", "key": settings.RAZORPAY_KEY_ID}
+    if settings.PLATFORM_UPI_ID:
+        response["upi_link"] = donation_upi_link(amount_paise, request.user.pk)
+    return Response(response, status=201)
 
 
 @api_view(["POST"])

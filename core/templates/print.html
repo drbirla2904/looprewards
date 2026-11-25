@@ -18,19 +18,24 @@ body{margin:0;background:#f5f2fa;color:#1c1530;font-family:Inter,"Noto Sans Deva
 .brand-mark svg{display:none;width:6.5mm;height:6.5mm}
 .category{display:flex;flex:0 0 auto;align-items:center;gap:1.5mm;margin:0 0 1.5mm;padding:1mm 2mm;border:0;border-radius:20mm;background:var(--soft);color:var(--accent);font-size:8pt;font-weight:750;letter-spacing:.25px}
 .category-icon{width:6mm;height:6mm;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-.category-art{display:grid;flex:0 0 auto;width:{% if size == 'a6' %}48mm{% elif tent %}55mm{% else %}64mm{% endif %};height:{% if size == 'a6' %}15mm{% elif tent %}17mm{% else %}20mm{% endif %};margin:0 0 1.5mm;place-items:center;overflow:hidden;border:1px solid var(--soft);border-radius:5mm;background:linear-gradient(135deg,#fff,var(--soft));color:var(--accent)}
+.category-art{display:grid;flex:0 0 auto;width:{% if size == 'a6' %}42mm{% elif tent %}48mm{% else %}54mm{% endif %};height:{% if size == 'a6' %}12mm{% elif tent %}14mm{% else %}16mm{% endif %};margin:0 0 1mm;place-items:center;overflow:hidden;border:1px solid var(--soft);border-radius:5mm;background:linear-gradient(135deg,#fff,var(--soft));color:var(--accent)}
 .category-art svg{display:block;width:94%;height:90%;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
 .category-art .art-fill{fill:var(--soft);stroke:currentColor}
 .category-art .art-detail{stroke-width:2}
 .category-art .salon-hair-stroke{stroke-width:2.6}
 h1{flex:0 0 auto;max-width:100%;margin:0 0 1mm;color:#1c1530;font-size:{% if size == 'a6' %}18pt{% else %}32pt{% endif %};line-height:1.08;letter-spacing:-.7px;overflow-wrap:anywhere}
 .tag{flex:0 0 auto;max-width:90%;margin:0 0 1.5mm;color:#6b6485;font-size:9pt;line-height:1.2}
-.qr-frame{position:relative;flex:0 0 auto;padding:1.5mm;border:1px solid #e7e2f1;border-radius:4mm;background:#fff}
-.qr-frame:before,.qr-frame:after{position:absolute;width:7mm;height:7mm;border-color:var(--accent);border-style:solid;content:""}
+.feature-stage{position:relative;flex:0 0 auto;width:94%;height:{% if size == 'a6' %}75mm{% elif tent %}82mm{% elif size == 'a5' %}98mm{% else %}132mm{% endif %};margin:0 auto 1mm}
+.qr-frame{position:absolute;z-index:1;top:50%;left:50%;padding:1.5mm;transform:translate(-50%,-50%);border:1px solid #e7e2f1;border-radius:4mm;background:#fff;box-shadow:0 2mm 5mm #24134212}
+.qr-frame:before,.qr-frame:after{position:absolute;width:6mm;height:6mm;border-color:var(--accent);border-style:solid;content:""}
 .qr-frame:before{top:-1mm;left:-1mm;border-width:1mm 0 0 1mm;border-radius:2mm 0 0}
 .qr-frame:after{right:-1mm;bottom:-1mm;border-width:0 1mm 1mm 0;border-radius:0 0 2mm}
 .qr{padding:0;background:#fff}
-.qr svg{display:block;width:{% if size == 'a6' %}48mm{% elif tent %}60mm{% else %}94mm{% endif %};height:auto;max-width:100%}
+.qr svg{display:block;width:{% if size == 'a6' %}34mm{% elif tent %}40mm{% elif size == 'a5' %}46mm{% else %}60mm{% endif %};height:auto;max-width:100%}
+.feature{position:absolute;display:flex;width:28%;height:25%;flex-direction:column;align-items:center;justify-content:center;gap:1mm;padding:1mm;border:1px solid color-mix(in srgb,var(--accent) 18%,white);border-radius:4mm;background:linear-gradient(145deg,#fff,var(--soft));color:var(--accent);font-size:{% if size == 'a6' %}6pt{% else %}9pt{% endif %};font-weight:800;line-height:1.08;text-align:center;box-shadow:0 1mm 3mm #2413420b}
+.feature svg{display:block;width:{% if size == 'a6' %}5.5mm{% else %}8mm{% endif %};height:{% if size == 'a6' %}5.5mm{% else %}8mm{% endif %};fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.feature small{display:block;color:#6b6485;font-size:{% if size == 'a6' %}5pt{% else %}7pt{% endif %};font-weight:600;line-height:1.05}
+.feature.tl{top:0;left:0}.feature.tr{top:0;right:0}.feature.bl{bottom:0;left:0}.feature.br{right:0;bottom:0}
 .cta{flex:0 0 auto;margin-top:2mm;padding:1.6mm 5mm;border-radius:20mm;white-space:nowrap;background:var(--accent);color:#fff;font-size:{% if size == 'a6' %}11pt{% else %}17pt{% endif %};font-weight:800;letter-spacing:-.35px;line-height:1.15}
 .cta-note{flex:0 0 auto;margin:0;color:#6b6485;font-size:7.5pt;line-height:1.2}
 .meta{flex:0 1 auto;max-width:90%;margin-top:1mm;color:#6b6485;font-size:7.5pt;line-height:1.2;overflow-wrap:anywhere}
@@ -85,7 +90,13 @@ h1{flex:0 0 auto;max-width:100%;margin:0 0 1mm;color:#1c1530;font-size:{% if siz
 {% else %}<path d="m24 5 4.5 12.5L41 22l-12.5 4.5L24 39l-4.5-12.5L7 22l12.5-4.5L24 5Zm14 25 1.8 5.2L45 37l-5.2 1.8L38 44l-1.8-5.2L31 37l5.2-1.8L38 30Z"/>{% endif %}
 </svg><span>{{ category_label }}</span></div>
 <h1>{{ b.name }}</h1>{% if b.tagline %}<p class="tag">{{ b.tagline }}</p>{% endif %}
+<div class="feature-stage">
+<div class="feature tl"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M8 5V3m8 2V3M7 11h2m3 0h2m3 0h1M7 15h2m3 0h2m3 0h1"/><path d="m9 17 2 2 4-4"/></svg><span>{% if lang_hi %}रिवॉर्ड पाएँ{% else %}Earn Rewards{% endif %}<small>{% if lang_hi %}स्टैम्प जमा करें{% else %}Collect stamps{% endif %}</small></span></div>
+<div class="feature tr"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m12 3 2.2 6.2L21 12l-6.8 2.8L12 21l-2.8-6.2L3 12l6.2-2.8L12 3Z"/><circle cx="12" cy="12" r="2"/></svg><span>{% if lang_hi %}स्पिन करें{% else %}Spin &amp; Win{% endif %}<small>{% if lang_hi %}इनाम जीतें{% else %}Win a prize{% endif %}</small></span></div>
+<div class="feature bl"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20.6 13.4-7.2 7.2a2 2 0 0 1-2.8 0L3.4 13.4a2 2 0 0 1 0-2.8l7.2-7.2A2 2 0 0 1 12 3h7a2 2 0 0 1 2 2v7a2 2 0 0 1-.4 1.4Z"/><circle cx="16.5" cy="7.5" r="1"/></svg><span>{% if lang_hi %}खास ऑफ़र{% else %}Shop Offers{% endif %}<small>{% if lang_hi %}डील देखें{% else %}See what's new{% endif %}</small></span></div>
+<div class="feature br"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1Zm13-9a3 3 0 1 0-1-5m3 14h3v-1a6 6 0 0 0-4-5.7"/><path d="m16 4 2-2 2 2m-2-2v5"/></svg><span>{% if lang_hi %}रेफ़र करें{% else %}Refer &amp; Earn{% endif %}<small>{% if lang_hi %}दोस्तों को बुलाएँ{% else %}Invite your friends{% endif %}</small></span></div>
 <div class="qr-frame"><div class="qr">{{ qr }}</div></div>
+</div>
 <div class="cta">{% if lang_hi %}स्कैन करें और इनाम पाएं{% else %}Scan to discover rewards{% endif %}</div>
 <p class="cta-note">{% if lang_hi %}दुकान पर अपने रिवॉर्ड देखें{% else %}Join this shop’s rewards on OFFLet{% endif %}</p>
 <div class="meta">{% if b.address %}<span>{{ b.address }}</span>{% endif %}{% if b.hours %}<span>{{ b.hours }}</span>{% endif %}{% if b.pay_upi_id %}<span>UPI: {{ b.pay_upi_id }}</span>{% endif %}</div>

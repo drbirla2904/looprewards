@@ -8,6 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
 from PIL import Image
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient, APITestCase
 from .models import (Business, CustomerProfile, Program, PurchaseEntry, Reward, RewardGrant, Task,
                      TaskProgress, User)
@@ -398,7 +399,8 @@ class BillingTest(APITestCase):
     def test_customer_donation_order_is_bounded_and_signature_verified(self):
         customer = User.objects.create_user("9999999935", "secret1", role="customer")
         self.client.force_authenticate(user=customer)
-        with override_settings(RAZORPAY_KEY_ID="rzp_test_demo", RAZORPAY_KEY_SECRET="test-secret"):
+        with override_settings(RAZORPAY_KEY_ID="rzp_test_demo", RAZORPAY_KEY_SECRET="test-secret",
+                               PLATFORM_UPI_ID=""):
             with patch("core.billing._rzp_post", return_value={"id": "order_donation_123"}) as gateway:
                 too_small = self.client.post("/api/billing/donation/order/", {"amount": "0"}, format="json")
                 too_precise = self.client.post("/api/billing/donation/order/", {"amount": "1.001"}, format="json")
@@ -441,6 +443,33 @@ class BillingTest(APITestCase):
         donation.refresh_from_db()
         self.assertEqual((donation.status, donation.payment_id), ("paid", payment_id))
 
+    def test_donation_uses_superadmin_upi_when_razorpay_is_unconfigured(self):
+        from urllib.parse import parse_qs, urlparse
+        customer = User.objects.create_user("9999999940", "secret1", role="customer")
+        self.client.force_authenticate(user=customer)
+        with override_settings(RAZORPAY_KEY_ID="", RAZORPAY_KEY_SECRET="",
+                               PLATFORM_UPI_ID="platform@upi", PLATFORM_UPI_NAME="OFFLet Admin"):
+            response = self.client.post("/api/billing/donation/order/", {"amount": "50.25"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["method"], "upi")
+        self.assertEqual(urlparse(response.data["upi_link"]).scheme, "upi")
+        self.assertEqual(parse_qs(urlparse(response.data["upi_link"]).query), {
+            "pa": ["platform@upi"], "pn": ["OFFLet Admin"], "am": ["50.25"], "cu": ["INR"],
+            "tn": [f"OFFLet donation {customer.pk}"],
+        })
+        self.assertFalse(Donation.objects.filter(donor=customer).exists())
+
+    def test_donation_falls_back_to_upi_when_razorpay_order_fails(self):
+        customer = User.objects.create_user("9999999941", "secret1", role="customer")
+        self.client.force_authenticate(user=customer)
+        with override_settings(RAZORPAY_KEY_ID="rzp_live_demo", RAZORPAY_KEY_SECRET="secret",
+                               PLATFORM_UPI_ID="platform@upi"):
+            with patch("core.billing._rzp_post", side_effect=ValidationError("The payment service could not be reached.")):
+                response = self.client.post("/api/billing/donation/order/", {"amount": "25"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["method"], "upi")
+        self.assertIn("pa=platform%40upi", response.data["upi_link"])
+
     def test_donation_webhook_marks_matching_payment_paid(self):
         customer = User.objects.create_user("9999999936", "secret1", role="customer")
         donation = Donation.objects.create(donor=customer, amount=2500, order_id="order_donation_webhook")
@@ -455,7 +484,8 @@ class BillingTest(APITestCase):
         donation.refresh_from_db()
         self.assertEqual((donation.status, donation.payment_id), ("paid", "pay_donation_webhook"))
 
-    def test_only_customers_can_create_donations(self):
+    @patch("core.billing.DonationThrottle.allow_request", return_value=True)
+    def test_only_customers_can_create_donations(self, _allow_request):
         owner = User.objects.create_user("9999999937", "secret1", role="owner")
         self.client.force_authenticate(user=owner)
         with override_settings(RAZORPAY_KEY_ID="rzp_test_demo", RAZORPAY_KEY_SECRET="test-secret"):
@@ -899,6 +929,17 @@ class HindiPrintTest(APITestCase):
         self.assertEqual(html.count('class="brand-mark"'), 2)
         self.assertEqual(html.count('<svg viewBox="0 0 40 40"'), 2)
         self.assertIn('background:url("/icon.svg")', html)
+
+    def test_print_card_has_four_feature_callouts_around_a_compact_qr(self):
+        self._login = FlowTest._login.__get__(self)
+        self._login("9000000003", "owner")
+        code = self.client.post("/api/businesses/", {"name": "Chai"}).data["shop_code"]
+        html = self.client.get(f"/print/{code}/?size=a6").content.decode()
+        for label in ("Earn Rewards", "Collect stamps", "Spin &amp; Win", "Shop Offers", "Refer &amp; Earn"):
+            self.assertIn(label, html)
+        self.assertEqual(html.count('class="feature '), 4)
+        self.assertIn("width:34mm", html)
+        self.assertIn("height:75mm", html)
 
     def test_offlet_brand_is_on_all_shop_print_sizes(self):
         self._login = FlowTest._login.__get__(self)

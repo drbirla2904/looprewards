@@ -86,7 +86,23 @@
         }
         error.textContent = '';
         const order = await api('billing/donation/order/', 'POST', { amount: amount.value });
-        await FX.loadRazorpay();
+        if (order.method === 'upi') {
+          dialog.close();
+          toast(t('Opening your UPI app to pay OFFLet.'));
+          location.href = order.upi_link;
+          return;
+        }
+        try {
+          await FX.loadRazorpay();
+        } catch (failure) {
+          if (order.upi_link) {
+            dialog.close();
+            toast(t('Razorpay is unavailable. Opening your UPI app instead.'));
+            location.href = order.upi_link;
+            return;
+          }
+          throw failure;
+        }
         const checkout = new window.Razorpay({
           key: order.key, order_id: order.order_id, amount: order.amount, currency: order.currency,
           name: 'OFFLet', description: t('Voluntary support for OFFLet'), image: '/icon.svg',
