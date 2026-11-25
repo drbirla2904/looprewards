@@ -451,7 +451,12 @@ class WalletBlueprintBrandingTests(GrowthBase):
         cust = self.customer("9100000080")
         self.buy(cust)
         self.client.credentials(HTTP_AUTHORIZATION=cust)
-        w = self.client.get("/api/me/wallet/").data
+        discovery = self.client.get("/api/shops/discover/")
+        self.assertIn("no-store", discovery["Cache-Control"])
+        self.assertIn(self.code, [shop["shop_code"] for shop in discovery.data["shops"]])
+        response = self.client.get("/api/me/wallet/")
+        self.assertIn("no-store", response["Cache-Control"])
+        w = response.data
         self.assertEqual(len(w["shops"]), 1)
         s = w["shops"][0]
         self.assertEqual((s["visits"], s["streak"], s["tier"]["tier"]), (1, 1, "member"))

@@ -253,6 +253,15 @@ class Payment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class Donation(models.Model):
+    donor = models.ForeignKey(User, on_delete=models.CASCADE, related_name="donations")
+    amount = models.PositiveIntegerField()  # paise
+    status = models.CharField(max_length=10, default="created", choices=[("created", "created"), ("paid", "paid")])
+    order_id = models.CharField(max_length=60, unique=True)
+    payment_id = models.CharField(max_length=60, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 def get_sub(owner):
     return Subscription.objects.get_or_create(
         owner=owner, defaults={"trial_ends": timezone.now() + timedelta(days=settings.TRIAL_DAYS)})[0]

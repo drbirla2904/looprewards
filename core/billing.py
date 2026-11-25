@@ -13,12 +13,13 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.core import signing
 from django.shortcuts import get_object_or_404, render
 from django.db.models import F
-from .models import GatewayPlan, Payment, RewardGrant, Subscription, get_sub
+from .models import Donation, GatewayPlan, Payment, RewardGrant, Subscription, get_sub
 from .notify import push
+from .throttles import DonationThrottle
 import logging
 log = logging.getLogger("billing")
 
@@ -47,6 +48,17 @@ def mark_paid(pk, gateway_payment_id=""):
     if lapse <= timedelta(0):
         push(p.owner, f"Payment received. Your plan is active until {sub.paid_until:%d %b %Y}. Invoice {p.invoice_no}.", link="/app/#/billing")
     return p
+
+
+@transaction.atomic
+def mark_donation_paid(pk, gateway_payment_id):
+    donation = Donation.objects.select_for_update().get(pk=pk)
+    if donation.status == "paid":
+        return donation
+    donation.status = "paid"
+    donation.payment_id = gateway_payment_id
+    donation.save(update_fields=["status", "payment_id"])
+    return donation
 
 
 @transaction.atomic
@@ -173,6 +185,55 @@ def verify(request):
 
 
 @api_view(["POST"])
+@throttle_classes([DonationThrottle])
+def donation_order(request):
+    if request.user.role != "customer":
+        raise PermissionDenied("Customer account required.")
+    if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
+        raise ValidationError("Online donations are not configured.")
+    try:
+        amount = Decimal(str(request.data.get("amount", "")))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValidationError({"amount": "Enter a donation amount between ₹1 and ₹100,000."}) from exc
+    if (not amount.is_finite() or amount < 1 or amount > 100000
+            or amount * 100 != (amount * 100).to_integral_value()):
+        raise ValidationError({"amount": "Enter a donation from ₹1 to ₹100,000, in whole paise."})
+    amount_paise = int(amount * 100)
+    order = _rzp_post("orders", {"amount": amount_paise, "currency": "INR",
+        "receipt": f"offlet-{uuid.uuid4().hex[:16]}",
+        "notes": {"purpose": "voluntary_support", "donor_id": str(request.user.pk)}})
+    order_id = order.get("id")
+    if not order_id:
+        raise ValidationError("The payment service did not return an order. Please try again.")
+    Donation.objects.create(donor=request.user, amount=amount_paise, order_id=order_id)
+    return Response({"order_id": order_id, "amount": amount_paise, "currency": "INR",
+        "key": settings.RAZORPAY_KEY_ID}, status=201)
+
+
+@api_view(["POST"])
+def donation_verify(request):
+    if request.user.role != "customer":
+        raise PermissionDenied("Customer account required.")
+    order_id = str(request.data.get("razorpay_order_id", ""))
+    payment_id = str(request.data.get("razorpay_payment_id", ""))
+    signature = str(request.data.get("razorpay_signature", ""))
+    donation = Donation.objects.filter(donor=request.user, order_id=order_id).first()
+    expected = hmac.new(settings.RAZORPAY_KEY_SECRET.encode(),
+        f"{order_id}|{payment_id}".encode(), hashlib.sha256).hexdigest()
+    if not donation or not order_id or not payment_id or not hmac.compare_digest(expected, signature):
+        raise ValidationError("Donation payment could not be verified.")
+    if donation.status == "paid" and donation.payment_id == payment_id:
+        return Response({"detail": "Donation already confirmed.", "status": "paid"})
+    if donation.status != "created":
+        raise ValidationError("This donation order is no longer payable.")
+    if (Payment.objects.filter(payment_id=payment_id).exists()
+            or Donation.objects.filter(payment_id=payment_id).exclude(pk=donation.pk).exists()):
+        raise ValidationError("This payment has already been applied.")
+    mark_donation_paid(donation.pk, payment_id)
+    return Response({"detail": "Thank you for supporting OFFLet.", "status": "paid"})
+
+
+@api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
 @throttle_classes([])  # never throttle the payment gateway
@@ -220,6 +281,10 @@ def webhook(request):
         if (payment and pay.get("id") and captured_amount == payment.amount
                 and pay.get("currency", "INR") == "INR"):
             mark_paid(payment.pk, pay["id"])
+        donation = Donation.objects.filter(order_id=order_id, status="created").first()
+        if (donation and pay.get("id") and captured_amount == donation.amount
+                and pay.get("currency", "INR") == "INR"):
+            mark_donation_paid(donation.pk, pay["id"])
     return HttpResponse("ok")
 
 

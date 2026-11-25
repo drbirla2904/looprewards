@@ -320,7 +320,7 @@ class PurchaseUndoTest(APITestCase):
 import hashlib, hmac, json
 from django.conf import settings
 from django.test import override_settings
-from .models import Payment, User, get_sub
+from .models import Donation, Payment, User, get_sub
 from .billing import mark_paid
 
 
@@ -394,6 +394,73 @@ class BillingTest(APITestCase):
         self.assertEqual(get_sub(owner).state, "active")
         payment = Payment.objects.get(owner=owner, order_id="order_test_123")
         self.assertEqual((payment.status, payment.payment_id), ("paid", payment_id))
+
+    def test_customer_donation_order_is_bounded_and_signature_verified(self):
+        customer = User.objects.create_user("9999999935", "secret1", role="customer")
+        self.client.force_authenticate(user=customer)
+        with override_settings(RAZORPAY_KEY_ID="rzp_test_demo", RAZORPAY_KEY_SECRET="test-secret"):
+            with patch("core.billing._rzp_post", return_value={"id": "order_donation_123"}) as gateway:
+                too_small = self.client.post("/api/billing/donation/order/", {"amount": "0"}, format="json")
+                too_precise = self.client.post("/api/billing/donation/order/", {"amount": "1.001"}, format="json")
+                order = self.client.post("/api/billing/donation/order/", {"amount": "50.50"}, format="json")
+            self.assertEqual(too_small.status_code, 400)
+            self.assertEqual(too_precise.status_code, 400)
+            self.assertEqual(order.status_code, 201)
+            self.assertEqual(order.data, {
+                "order_id": "order_donation_123", "amount": 5050, "currency": "INR", "key": "rzp_test_demo",
+            })
+            gateway.assert_called_once()
+            self.assertEqual(gateway.call_args.args[0], "orders")
+            self.assertEqual(gateway.call_args.args[1]["amount"], 5050)
+            self.assertEqual(gateway.call_args.args[1]["currency"], "INR")
+            self.assertEqual(gateway.call_args.args[1]["notes"], {
+                "purpose": "voluntary_support", "donor_id": str(customer.pk),
+            })
+
+            donation = Donation.objects.get(donor=customer, order_id="order_donation_123")
+            payment_id = "pay_donation_123"
+            invalid = self.client.post("/api/billing/donation/verify/", {
+                "razorpay_order_id": donation.order_id, "razorpay_payment_id": payment_id,
+                "razorpay_signature": "invalid",
+            }, format="json")
+            self.assertEqual(invalid.status_code, 400)
+            self.assertEqual(donation.status, "created")
+            signature = hmac.new(b"test-secret",
+                f"{donation.order_id}|{payment_id}".encode(), hashlib.sha256).hexdigest()
+            verified = self.client.post("/api/billing/donation/verify/", {
+                "razorpay_order_id": donation.order_id, "razorpay_payment_id": payment_id,
+                "razorpay_signature": signature,
+            }, format="json")
+            repeated = self.client.post("/api/billing/donation/verify/", {
+                "razorpay_order_id": donation.order_id, "razorpay_payment_id": payment_id,
+                "razorpay_signature": signature,
+            }, format="json")
+
+        self.assertEqual(verified.status_code, 200)
+        self.assertEqual(repeated.status_code, 200)
+        donation.refresh_from_db()
+        self.assertEqual((donation.status, donation.payment_id), ("paid", payment_id))
+
+    def test_donation_webhook_marks_matching_payment_paid(self):
+        customer = User.objects.create_user("9999999936", "secret1", role="customer")
+        donation = Donation.objects.create(donor=customer, amount=2500, order_id="order_donation_webhook")
+        body = json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": {
+            "id": "pay_donation_webhook", "order_id": donation.order_id, "amount": donation.amount,
+            "currency": "INR",
+        }}}})
+        signature = hmac.new(b"whsec", body.encode(), hashlib.sha256).hexdigest()
+        response = self.client.generic("POST", "/api/billing/webhook/", body,
+                                       content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE=signature)
+        self.assertEqual(response.status_code, 200)
+        donation.refresh_from_db()
+        self.assertEqual((donation.status, donation.payment_id), ("paid", "pay_donation_webhook"))
+
+    def test_only_customers_can_create_donations(self):
+        owner = User.objects.create_user("9999999937", "secret1", role="owner")
+        self.client.force_authenticate(user=owner)
+        with override_settings(RAZORPAY_KEY_ID="rzp_test_demo", RAZORPAY_KEY_SECRET="test-secret"):
+            response = self.client.post("/api/billing/donation/order/", {"amount": "25"}, format="json")
+        self.assertEqual(response.status_code, 403)
 
     def test_upi_requires_screenshot_and_admin_can_view_it_privately(self):
         from django.urls import reverse
@@ -810,6 +877,16 @@ class HindiPrintTest(APITestCase):
         manifest = self.client.get("/manifest.json")
         self.assertEqual(manifest.json()["name"], "OFFLet")
         self.assertEqual(manifest.json()["short_name"], "OFFLet")
+        icons = manifest.json()["icons"]
+        self.assertIn({"src": "/static/app/offlet-icon-192.png", "sizes": "192x192",
+                       "type": "image/png", "purpose": "any"}, icons)
+        self.assertIn({"src": "/static/app/offlet-icon-maskable-512.png", "sizes": "512x512",
+                       "type": "image/png", "purpose": "maskable"}, icons)
+        app = self.client.get("/app/")
+        self.assertContains(app, 'rel="apple-touch-icon" href="/static/app/offlet-icon-180.png"')
+        self.assertContains(app, 'name="apple-mobile-web-app-status-bar-style"')
+        self.assertContains(self.client.get("/app/classic/"),
+                            'rel="apple-touch-icon" href="/static/app/offlet-icon-180.png"')
 
     def test_hindi_print_card(self):
         self._login = FlowTest._login.__get__(self)
@@ -839,6 +916,8 @@ class HindiPrintTest(APITestCase):
                 self.assertEqual(html.count("Coffee and good company"), panels)
                 self.assertIn("Cafe &amp; coffee", html)
                 self.assertIn("--accent:#111", html)
+                self.assertIn(".brand{position:absolute;z-index:1;top:7mm;left:7mm", html)
+                self.assertIn(".rot .brand{top:auto;right:7mm;bottom:7mm;left:auto}", html)
                 self.assertIn('class="category-art" role="img"', html)
                 self.assertNotIn("@keyframes", html)
                 self.assertNotIn("animation:", html)

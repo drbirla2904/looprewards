@@ -6,13 +6,9 @@
 OFFLet runs directly on Ubuntu without Docker. See **[GUIDE.md](GUIDE.md)** for step-by-step Contabo setup for `offlet.in`, Nginx/HTTPS, backups, upgrades, and rollback. Once installed, upgrade with `bash ./deploy/deploy.sh`.
 
 ## Local development
-    py -m venv .venv
-    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-    $env:DEBUG = "1"
-    .\.venv\Scripts\python.exe manage.py makemigrations core
-    .\.venv\Scripts\python.exe manage.py migrate
-    .\.venv\Scripts\python.exe manage.py test
-    .\.venv\Scripts\python.exe manage.py runserver
+Create and activate a virtual environment, install `requirements.txt`, then use `make verify-local` to run Django checks, migration checks, and tests. For individual steps, see `make check-local`, `make migrations-check`, and `make test-local`. Start the development server with `make run-local`.
+
+The production Gunicorn configuration distributes traffic across configurable worker processes and threads. See the [deployment guide](GUIDE.md#worker-sizing-and-load-distribution) before increasing worker counts or adding app servers.
 
 
 ## QR card (My shop)

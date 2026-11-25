@@ -10,8 +10,12 @@ Group=offlet
 SupplementaryGroups=www-data
 WorkingDirectory=/srv/offlet/offlet
 EnvironmentFile=/srv/offlet/offlet/.env
+Environment=APP_BIND_PORT=18080
+Environment=WEB_WORKERS=2
+Environment=WEB_THREADS=4
+Environment=WEB_MAX_REQUESTS=2000
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/srv/offlet/offlet/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:${APP_BIND_PORT} --workers ${WEB_WORKERS} --worker-class gthread --threads 4 --timeout 60 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
+ExecStart=/srv/offlet/offlet/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:${APP_BIND_PORT} --workers ${WEB_WORKERS} --worker-class gthread --threads ${WEB_THREADS} --timeout 60 --graceful-timeout 30 --keep-alive 5 --max-requests ${WEB_MAX_REQUESTS} --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

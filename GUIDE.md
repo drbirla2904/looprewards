@@ -130,6 +130,12 @@ set +a
 
 The committed migrations must be present in Git; do not create migrations on the production server.
 
+### Worker sizing and load distribution
+
+The default Gunicorn setup distributes requests across two worker processes, each with four threads. `WEB_WORKERS`, `WEB_THREADS`, and `WEB_MAX_REQUESTS` in `.env` tune that single VPS; start conservatively and benchmark under realistic traffic before increasing workers, since each worker consumes memory and each PostgreSQL connection consumes database capacity. `DB_CONN_MAX_AGE` controls per-worker persistent database connections; connection health is checked before reuse. The Nginx proxy has request timeouts and gzip for text responses.
+
+This is **single-server** load distribution, not multi-server failover. For multiple app hosts, put them behind a load balancer and use the same PostgreSQL database, `SECRET_KEY`, and `BASE_URL`; configure a shared Redis `REDIS_URL` for cross-worker rate limits/cache, and shared object storage or a shared media volume for uploads. Do not add a second Gunicorn instance on the same port or scale out before those shared services and health checks are configured.
+
 ### Existing Firaao deployment: planned cutover
 
 This is a one-time, downtime migration for a server currently using the old `firaao` service account, database, path, and domain. Do not run these commands on a new installation. First push the reviewed OFFLet release, point `offlet.in` and `www.offlet.in` DNS to this VPS, and confirm the new domain resolves. Schedule a maintenance window and verify an off-server backup is available.
@@ -328,7 +334,7 @@ If you change `.env`, restart OFFLet with `sudo systemctl restart offlet`. Keep 
 - Razorpay: configure the webhook at `https://offlet.in/api/billing/webhook/` for the supported payment and subscription events; use test mode first. Keep API and webhook secrets in `.env`.
 - Manual UPI: set `PLATFORM_UPI_ID`; reconcile each payment in the bank statement before approving it in `/admin`.
 - SMS/WhatsApp: `NOTIFY_WEBHOOK_URL` must be your provider bridge; set `NOTIFY_SMS=1` only after verifying it.
-- Initial worker count is conservative (`WEB_WORKERS=2`). Check Contabo RAM/CPU and existing services before increasing it. OFFLet does not require Redis for a basic single-server install; without Redis, per-process throttling/cache is not shared across workers.
+- Initial worker count is conservative (`WEB_WORKERS=2`, `WEB_THREADS=4`). Check Contabo RAM/CPU, PostgreSQL connection limits, and existing services before increasing it. See [Worker sizing and load distribution](#worker-sizing-and-load-distribution). OFFLet does not require Redis for a basic single-server install; without Redis, per-process throttling/cache is not shared across workers.
 - Keep Contabo snapshots and offsite backups. Test the actual restore process before relying on it.
 
 ## 12. Troubleshooting

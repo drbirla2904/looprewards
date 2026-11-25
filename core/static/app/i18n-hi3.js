@@ -116,3 +116,25 @@ Object.assign(window.FX_HI, {
 "Welcome, referral and social rewards": "वेलकम, रेफ़रल और सोशल इनाम",
 "Reward customers after staff confirm they follow a social profile.": "स्टाफ द्वारा सोशल प्रोफ़ाइल फ़ॉलो की पुष्टि के बाद ग्राहकों को इनाम दें।"
 });
+
+Object.assign(window.FX_HI, {
+"Support OFFLet": "OFFLet को सहयोग दें",
+"OFFLet is free for customers. Your voluntary support helps keep it available.": "OFFLet ग्राहकों के लिए मुफ़्त है। आपका स्वैच्छिक सहयोग इसे उपलब्ध रखने में मदद करता है।",
+"Donate to OFFLet": "OFFLet को दान दें",
+"Donation amount (₹)": "दान राशि (₹)",
+"Donation amount in rupees": "रुपयों में दान राशि",
+"Enter an amount between ₹1 and ₹100,000, in whole paise.": "₹1 से ₹1,00,000 तक की राशि, पूरे पैसे में दर्ज करें।",
+"Continue to payment": "भुगतान जारी रखें",
+"Voluntary support for OFFLet": "OFFLet के लिए स्वैच्छिक सहयोग",
+"Thank you for supporting OFFLet.": "OFFLet का समर्थन करने के लिए धन्यवाद।",
+"Payment failed. Please try again.": "भुगतान विफल हुआ। कृपया फिर कोशिश करें।",
+"Online donations are not configured.": "ऑनलाइन दान अभी सेट नहीं है।",
+"Enter a donation amount between ₹1 and ₹100,000.": "₹1 से ₹1,00,000 तक की दान राशि दर्ज करें।",
+"Enter a donation from ₹1 to ₹100,000, in whole paise.": "₹1 से ₹1,00,000 तक की राशि, पूरे पैसे में दर्ज करें।",
+"Customer account required.": "ग्राहक खाता आवश्यक है।",
+"The payment service did not return an order. Please try again.": "भुगतान सेवा से ऑर्डर नहीं मिला। कृपया फिर कोशिश करें।",
+"Donation payment could not be verified.": "दान भुगतान सत्यापित नहीं हो सका।",
+"Donation already confirmed.": "दान की पुष्टि पहले ही हो चुकी है।",
+"This donation order is no longer payable.": "यह दान ऑर्डर अब भुगतान योग्य नहीं है।",
+"This payment has already been applied.": "यह भुगतान पहले ही दर्ज हो चुका है।"
+});

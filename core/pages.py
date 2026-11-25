@@ -22,7 +22,7 @@ CATEGORY_THEMES = {
 }
 
 
-ASSET_VERSION = "2.4.8"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
+ASSET_VERSION = "2.4.17"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
 
 
 def shell(request, code=None):
@@ -76,8 +76,10 @@ def manifest(request):
     return JsonResponse({"name": "OFFLet", "short_name": "OFFLet", "start_url": "/app/", "scope": "/",
         "display": "standalone", "background_color": "#ffffff", "theme_color": "#5e35b1",
         "description": "Rewards, bookings and repeat customers for local businesses.",
-        "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
-                  {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable"}],
+        "icons": [{"src": "/static/app/offlet-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                  {"src": "/static/app/offlet-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                  {"src": "/static/app/offlet-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+                  {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}],
         "shortcuts": [{"name": "My rewards", "url": "/app/"}]})
 
 

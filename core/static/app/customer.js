@@ -72,6 +72,44 @@
     const hero = h('div.hero-me', h('div', h('h1', t(hello) + (name ? ', ' + name : '')),
       h('p', w.total_rewards ? t('{n} rewards ready to use', { n: w.total_rewards }) : w.shops.length ? t('Keep collecting. Your next reward is closer than you think.') : t('Scan a shop QR code to get your first stamp.'))),
       w.shops.length ? h('div.hero-stats', h('div.hero-stat', h('b', w.total_rewards), h('span', t('Rewards ready'))), h('div.hero-stat', h('b', w.shops.length), h('span', t('Shops'))), h('div.hero-stat', h('b', w.total_visits), h('span', t('Visits')))) : null);
+    const supportOfflet = () => {
+      const amount = inp({ type: 'number', inputmode: 'decimal', min: '1', max: '100000', step: '0.01', required: true,
+        ph: 'Donation amount (₹)', 'aria-label': t('Donation amount in rupees') });
+      const error = h('p.err', { role: 'alert' });
+      let dialog;
+      const pay = h('button.btn.block', { type: 'button', onclick: e => busy(e.currentTarget, async () => {
+        const value = Number(amount.value);
+        if (!amount.value || !amount.checkValidity() || !Number.isFinite(value) || value < 1 || value > 100000) {
+          error.textContent = t('Enter an amount between ₹1 and ₹100,000, in whole paise.');
+          amount.focus();
+          return;
+        }
+        error.textContent = '';
+        const order = await api('billing/donation/order/', 'POST', { amount: amount.value });
+        await FX.loadRazorpay();
+        const checkout = new window.Razorpay({
+          key: order.key, order_id: order.order_id, amount: order.amount, currency: order.currency,
+          name: 'OFFLet', description: t('Voluntary support for OFFLet'), image: '/icon.svg',
+          theme: { color: '#5e35b1' },
+          handler: async response => {
+            try {
+              const result = await api('billing/donation/verify/', 'POST', response);
+              dialog.close();
+              toast(FX.tr(result.detail) || t('Thank you for supporting OFFLet.'));
+            } catch (failure) {
+              toast(failure.message, true);
+            }
+          }
+        });
+        checkout.on('payment.failed', response => {
+          error.textContent = response.error?.description || t('Payment failed. Please try again.');
+        });
+        checkout.open();
+      }) }, t('Continue to payment'));
+      dialog = modal(t('Support OFFLet'), h('div.stack',
+        h('p.muted', t('OFFLet is free for customers. Your voluntary support helps keep it available.')),
+        field('Donation amount (₹)', amount), error, pay));
+    };
     const how = h('div.card.stack', h('h3', t('How it works')),
       [['📷', 'Scan the QR code at the counter'], ['✅', 'Tap once after you buy to collect a stamp'], ['🎁', 'Show your reward pass and enjoy']].map(([e, x]) => h('div.row', h('span', { style: 'font-size:calc(26px * var(--font-scale, .8))' }, e), h('span', t(x)))));
     const tiles = FX.tiles([['🏪', 'Add shop', () => { code.focus(); code.scrollIntoView({ behavior: 'smooth', block: 'center' }); }], ['🎁', 'My rewards', '#/rewards', w.total_rewards || null], ['🔔', 'Alerts', FX.inbox, S.unread || null], ['👤', 'Account', '#/account']]);
@@ -80,7 +118,9 @@
       w.shops.length ? h('div.g2', w.shops.map(shopCard)) : how,
       h('div.card.stack', h('div.row.between', h('h3', t('Discover shops')), nearbyBtn),
         h('div.row', search), discoverBox),
-      h('div.card.stack', h('h3', t('Add a shop by code')), h('div.row', code, h('button.btn', { onclick: () => { const c = code.value.trim(); if (c) location.href = '/b/' + encodeURIComponent(c) + '/'; } }, t('Open')))));
+      h('div.card.stack', h('h3', t('Add a shop by code')), h('div.row', code, h('button.btn', { onclick: () => { const c = code.value.trim(); if (c) location.href = '/b/' + encodeURIComponent(c) + '/'; } }, t('Open')))),
+      h('div.card.stack', h('div', h('h3', t('Support OFFLet')), h('p.muted.small', t('OFFLet is free for customers. Your voluntary support helps keep it available.'))),
+        h('button.btn.soft.block', { onclick: supportOfflet }, t('Donate to OFFLet'))));
   };
 
   /* ---------- logged-out shop page (QR landing) ---------- */

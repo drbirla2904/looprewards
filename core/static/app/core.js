@@ -93,8 +93,11 @@
     let data;
     if (body instanceof FormData) data = body;
     else if (body !== undefined) { headers['Content-Type'] = 'application/json'; data = JSON.stringify(body); }
+    const requestMethod = method || 'GET';
+    const url = new URL('/api/' + path, location.origin);
+    if (requestMethod.toUpperCase() === 'GET') url.searchParams.set('_offlet', Date.now().toString());
     let r;
-    try { r = await fetch('/api/' + path, { method: method || 'GET', headers, body: data }); }
+    try { r = await fetch(url, { method: requestMethod, headers, body: data, cache: 'no-store' }); }
     catch (e) { throw new Error(t('No internet connection. Please try again.')); }
     if (r.status === 204) return null;
     let j = null;
@@ -104,6 +107,26 @@
     return j;
   }
   FX.api = api;
+
+  let razorpayLoad = null;
+  FX.loadRazorpay = function () {
+    if (window.Razorpay) return Promise.resolve();
+    if (!razorpayLoad) {
+      razorpayLoad = new Promise((resolve, reject) => {
+        const fail = () => {
+          razorpayLoad = null;
+          reject(new Error(t('Could not load the payment window. Check your connection.')));
+        };
+        const script = h('script', {
+          src: 'https://checkout.razorpay.com/v1/checkout.js',
+          onload: () => window.Razorpay ? resolve() : fail(),
+          onerror: fail
+        });
+        document.head.appendChild(script);
+      });
+    }
+    return razorpayLoad;
+  };
 
   /* ---------------- overlays ---------------- */
   function toast(msg, bad, action) {
@@ -216,15 +239,23 @@
       if (++f < 160) requestAnimationFrame(tick); else c.remove();
     })();
   };
-  /* full-screen moment: stamp earned, reward unlocked. actions = [[label, fn, 'ghost'?]] */
+  /* Compact, non-blocking reward moment. actions = [[label, fn, 'ghost'?]] */
   FX.celebrate = function (o) {
     FX.haptic([18, 40, 18]); FX.confetti(o.big ? 160 : 90);
-    const close = () => el.remove();
-    const el = h('div.celebrate', { role: 'dialog', 'aria-modal': 'true', 'aria-label': o.title, onclick: e => { if (e.target === el) close(); } },
+    const previousFocus = document.activeElement;
+    const close = () => {
+      document.removeEventListener('keydown', onKeydown);
+      el.remove();
+      if (previousFocus && previousFocus.isConnected && typeof previousFocus.focus === 'function') previousFocus.focus();
+    };
+    const onKeydown = event => { if (event.key === 'Escape') close(); };
+    const el = h('div.celebrate', { role: 'dialog', 'aria-label': o.title, tabindex: '-1' },
       h('div.box', h('div.badge' + (o.ok ? '.ok' : ''), o.icon || '🎉'), h('h2', o.title), o.text ? h('p', o.text) : null, o.body || null,
         (o.actions || []).map(([label, fn, kind]) => h('button.btn.block' + (kind ? '.' + kind : ''), { onclick: () => { close(); if (fn) fn(); } }, label)),
         h('button.btn.ghost.block', { onclick: close }, t('Close'))));
     document.body.appendChild(el);
+    el.focus();
+    document.addEventListener('keydown', onKeydown);
     return { close };
   };
   FX.ring = function (pct, mid, sub, size) {
@@ -240,10 +271,10 @@
     return typeof go === 'function' ? h('button.tile', { type: 'button', onclick: go }, ...inner) : h('a.tile', { href: go }, ...inner);
   }));
   const TEXT_SIZES = [
-    { id: 'very-small', scale: 0.68, label: 'Very small' },
-    { id: 'small', scale: 0.74, label: 'Small' },
-    { id: 'medium', scale: 0.8, label: 'Medium' },
-    { id: 'large', scale: 0.9, label: 'Large' }
+    { id: 'very-small', scale: 0.8, label: 'Very small' },
+    { id: 'small', scale: 0.9, label: 'Small' },
+    { id: 'medium', scale: 1, label: 'Medium' },
+    { id: 'large', scale: 1.1, label: 'Large' }
   ];
   const applyTextSize = id => {
     const size = TEXT_SIZES.find(x => x.id === id) || TEXT_SIZES[2];
@@ -510,7 +541,7 @@
     const load = async () => { const r = await api('b/' + biz.shop_code + '/counter-code/'); code = r.code; left = r.expires_in; digits.textContent = code.slice(0, 3) + ' ' + code.slice(3); img.src = '/api/b/' + biz.shop_code + '/cqr.png?c=' + code; };
     await load();
     const timer = setInterval(async () => { if (!alive || !document.body.contains(digits)) { clearInterval(timer); return; } left -= 1; ring.firstChild.style.width = Math.max(0, left / 60 * 100) + '%'; if (left <= 0) { try { await load(); } catch (e) { /* retry next tick */ } } }, 1000);
-    return h('div.counter', { style: 'position:fixed;inset:0;z-index:60;overflow:auto' }, h('div.stack.l', h('h2', { style: 'color:#fff' }, biz.name), h('p', { style: 'color:#cfe6e0' }, t('Customers scan this after paying. The code changes every minute.')),
+    return h('div.counter', h('div.stack.l', h('h2', { style: 'color:#fff' }, biz.name), h('p', { style: 'color:#cfe6e0' }, t('Customers scan this after paying. The code changes every minute.')),
       h('div.qr', img), digits, ring, h('button.btn.ghost', { onclick: () => { alive = false; FX.go(''); } }, t('Close'))));
   };
 })(window.FX);

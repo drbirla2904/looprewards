@@ -22,7 +22,7 @@ MIDDLEWARE = ["django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware", "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware", "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware"]
+    "django.middleware.clickjacking.XFrameOptionsMiddleware", "core.middleware.ApiNoStoreMiddleware"]
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True,
@@ -32,7 +32,7 @@ if env("POSTGRES_DB"):
     DATABASES = {"default": {"ENGINE": "django.db.backends.postgresql", "NAME": env("POSTGRES_DB"),
         "USER": env("POSTGRES_USER"), "PASSWORD": env("POSTGRES_PASSWORD"),
         "HOST": env("POSTGRES_HOST", "127.0.0.1"), "PORT": env("POSTGRES_PORT", "5432"),
-        "CONN_MAX_AGE": 60}}
+        "CONN_MAX_AGE": int(env("DB_CONN_MAX_AGE", "60")), "CONN_HEALTH_CHECKS": True}}
 else:
     DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 AUTH_USER_MODEL = "core.User"
@@ -98,7 +98,8 @@ REST_FRAMEWORK["NUM_PROXIES"] = int(env("NUM_PROXIES", "1"))  # Caddy = 1 (Cloud
 REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = ["rest_framework.throttling.AnonRateThrottle", "rest_framework.throttling.UserRateThrottle"]
 # high anon/user limits because many Indian mobile users share one carrier IP (CGNAT); login/OTP use the strict "auth" scope
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"anon": "600/min", "user": "600/min",
-                                            "auth": "10000/min" if "test" in sys.argv else "10/min"}
+                                            "auth": "10000/min" if "test" in sys.argv else "10/min",
+                                            "donation": "5/min"}
 if env("REDIS_URL"):  # shared across workers; without it throttling is per-process
     CACHES = {"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache", "LOCATION": env("REDIS_URL")}}
 if not DEBUG:

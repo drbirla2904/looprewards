@@ -77,6 +77,20 @@ class PaymentAdmin(admin.ModelAdmin):
             self.message_user(request, f"{n} payment(s) refunded. Remember to send the money back through Razorpay or UPI.")
 
 
+@admin.register(models.Donation)
+class DonationAdmin(admin.ModelAdmin):
+    list_display = ("id", "donor", "amount", "status", "order_id", "payment_id", "created_at")
+    list_filter = ("status", "created_at")
+    search_fields = ("donor__username", "order_id", "payment_id")
+    readonly_fields = ("donor", "amount", "status", "order_id", "payment_id", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(models.Vendor)
 class VendorAdmin(admin.ModelAdmin):
     list_display = ("code", "user", "status", "rate", "applied_at", "upi_id")

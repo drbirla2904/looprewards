@@ -1,7 +1,7 @@
 /* OFFLet v2 design system. Idea: a physical punch card. Stamps + perforated reward stubs are the one memorable
    motif; everything else stays quiet (white surfaces, hairline borders, one accent per screen). */
 :root{
-  --font-scale:.8;
+  --font-scale:1;
   color-scheme:light;
   --ink:#15192b;--ink2:#444b63;--mute:#747b92;--line:#e3e6ee;--bg:#f3f4f8;--card:#fff;
   --brand:#0f6b5c;--brand-d:#0a4a40;--brand-s:#e2f2ee;
@@ -33,8 +33,8 @@ img{max-width:100%}
 @media(max-width:560px){.g2,.g3{grid-template-columns:1fr}.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* ---------- app shell ---------- */
-.app{min-height:100vh;display:grid;grid-template-columns:var(--side) minmax(0,1fr)}
-.side{position:sticky;top:0;height:100vh;padding:20px 14px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;overflow:auto}
+.app{min-height:100vh;min-height:100dvh;display:grid;grid-template-columns:var(--side) minmax(0,1fr)}
+.side{position:sticky;top:0;height:100vh;height:100dvh;padding:20px 14px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;overflow:auto}
 .logo{display:flex;align-items:center;gap:10px;padding:2px 8px 18px;font-family:var(--f-d);font-weight:700;font-size:calc(19px * var(--font-scale, .8));color:var(--ink);text-decoration:none}
 .logo img{width:32px;height:32px;border-radius:10px;object-fit:cover;flex:none}
 .nav{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:var(--r1);color:var(--ink2);text-decoration:none;font-weight:500;border:0;background:none;width:100%;text-align:left;cursor:pointer;position:relative}
@@ -54,7 +54,9 @@ img{max-width:100%}
 .tabs{display:none}
 @media(max-width:860px){
   .app{display:block}.side{display:none}
-  .top{padding:8px 14px}.top .logo{display:flex}
+  .top{padding:calc(8px + env(safe-area-inset-top)) 14px 8px}.top .logo{display:flex}
+  .top .iconbtn{width:44px;height:44px}
+  a,button,[role=button]{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   .page{padding:18px 14px calc(var(--tabs) + 28px)}
   .app #view{padding:18px 14px calc(var(--tabs) + 28px + env(safe-area-inset-bottom))}
   .tabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;position:fixed;left:0;right:0;bottom:0;z-index:25;height:calc(var(--tabs) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:#fff;border-top:1px solid var(--line)}
@@ -171,10 +173,11 @@ input[type=color]{padding:3px;width:56px}
 .hbar .t{background:var(--bg);border-radius:9px;overflow:hidden}
 
 /* ---------- overlays ---------- */
-dialog{border:0;padding:0;border-radius:var(--r3);width:min(92vw,480px);max-height:80vh;max-height:min(80dvh,680px);box-shadow:0 20px 60px #0005;color:var(--ink)}
+dialog{border:0;padding:0;border-radius:var(--r3);width:min(92vw,480px);max-height:72vh;max-height:min(72dvh,560px);box-shadow:0 20px 60px #0005;color:var(--ink)}
 dialog::backdrop{background:#10162a88}
-dialog>.in{padding:18px;display:grid;gap:12px;overflow:auto;max-height:inherit;overscroll-behavior:contain}
-dialog.drawer{margin:auto 12px auto auto;height:auto;max-height:min(80dvh,680px);width:min(92vw,440px);border-radius:var(--r3)}
+dialog>.in{min-height:0;padding:16px;display:grid;gap:12px;overflow:auto;max-height:inherit;overscroll-behavior:contain}
+dialog>.in>.hd{position:sticky;top:-16px;z-index:2;padding:4px 0 8px;background:inherit}
+dialog.drawer{margin:auto 12px auto auto;height:auto;max-height:min(72dvh,560px);width:min(92vw,440px);border-radius:var(--r3)}
 dialog.drawer>.in{max-height:inherit;height:auto}
 @media(max-width:560px){dialog:not(.drawer):not(.sheet){margin:auto;width:min(94vw,480px);max-width:calc(100vw - 24px);border-radius:var(--r3)}dialog.drawer{margin:auto;width:min(94vw,440px)}}
 .toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabs) + 14px + env(safe-area-inset-bottom));z-index:99;display:grid;gap:8px;width:min(92vw,420px)}
@@ -213,9 +216,10 @@ dialog.drawer>.in{max-height:inherit;height:auto}
 @media(max-width:860px){.auth{display:block}.auth .hero{padding:26px 20px;gap:16px}.auth .hero .demo-card{display:none}.auth .hero h1{font-size:calc(28px * var(--font-scale, .8))}}
 
 /* ---------- counter screen ---------- */
-.counter{min-height:100vh;display:grid;place-items:center;background:var(--brand-d);color:#fff;padding:24px;text-align:center}
-.counter .digits{font-family:var(--f-d);font-weight:700;font-size:clamp(calc(56px * var(--font-scale, .8)), calc(14vw * var(--font-scale, .8)), calc(128px * var(--font-scale, .8)));letter-spacing:.12em;line-height:1}
-.counter .qr{background:#fff;border-radius:var(--r3);padding:14px;width:min(70vw,300px);margin:0 auto}
+.counter{width:min(100%,760px);margin:clamp(12px,3vh,28px) auto;display:grid;place-items:center;background:var(--brand-d);color:#fff;padding:clamp(16px,4vw,28px);border-radius:var(--r3);box-shadow:var(--sh2);text-align:center}
+.counter .digits{font-family:var(--f-d);font-weight:700;font-size:clamp(calc(44px * var(--font-scale, 1)), calc(10vw * var(--font-scale, 1)), calc(88px * var(--font-scale, 1)));letter-spacing:.12em;line-height:1}
+.counter .qr{background:#fff;border-radius:var(--r3);padding:12px;width:min(52vw,240px);margin:0 auto}
+.counter .qr img{display:block;width:100%;height:auto}
 .counter .ring{height:8px;border-radius:9px;background:#ffffff33;overflow:hidden;width:min(80vw,420px);margin:18px auto 0}.counter .ring i{display:block;height:100%;background:var(--gold);transition:width 1s linear}
 .qrbox{background:#fff;border:1px solid var(--line);border-radius:var(--r2);padding:12px;width:220px;max-width:100%}
 .swatch{width:28px;height:28px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer}
@@ -310,7 +314,7 @@ body{background:radial-gradient(1200px 420px at 50% -120px,#dff1ec 0%,transparen
 .task.waiting{background:linear-gradient(90deg,#fff,#f4f7ff)}
 
 /* bottom sheet (claim + reward pass) */
-dialog.sheet{margin:auto 0 0;width:min(94vw,460px);max-width:calc(100vw - 24px);max-height:min(80dvh,680px);border-radius:24px 24px 0 0;animation:sheet .35s var(--ease)}
+dialog.sheet{margin:auto 0 0;width:min(94vw,460px);max-width:calc(100vw - 24px);max-height:min(72dvh,560px);border-radius:24px 24px 0 0;animation:sheet .35s var(--ease)}
 @media(min-width:561px){dialog.sheet{margin:auto;border-radius:24px}}
 dialog.sheet::backdrop{background:#10162a99;backdrop-filter:blur(3px)}
 dialog.sheet .grab{width:44px;height:5px;border-radius:9px;background:#d4d8e3;margin:-8px auto 6px}
@@ -340,13 +344,12 @@ dialog.pass .iconbtn{background:#ffffff26;border-color:transparent;color:inherit
 .ticket .stub .btn{width:100%}
 
 /* celebration */
-.celebrate{position:fixed;inset:0;z-index:120;display:grid;place-items:center;background:#0b1224b3;backdrop-filter:blur(4px);animation:fade .25s ease}
-@keyframes fade{from{opacity:0}}
-.celebrate .box{width:min(92vw,380px);background:#fff;border-radius:28px;padding:28px 22px 22px;text-align:center;display:grid;gap:12px;justify-items:center;animation:boom .6s cubic-bezier(.2,1.5,.4,1)}
+.celebrate{position:fixed;left:50%;top:50%;z-index:120;width:min(92vw,380px);max-height:min(72dvh,560px);transform:translate(-50%,-50%);pointer-events:none}
+.celebrate .box{width:100%;max-height:inherit;overflow:auto;overscroll-behavior:contain;background:#fff;border:1px solid var(--line);border-radius:24px;padding:20px;text-align:center;display:grid;gap:10px;justify-items:center;box-shadow:0 16px 48px #15192b33;pointer-events:auto;animation:boom .35s cubic-bezier(.2,1.3,.4,1)}
 @keyframes boom{from{transform:scale(.6) translateY(30px);opacity:0}}
-.celebrate .badge{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-size:calc(42px * var(--font-scale, .8));background:var(--gold-s)}
+.celebrate .badge{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-size:calc(34px * var(--font-scale, 1));background:var(--gold-s)}
 .celebrate .badge.ok{background:var(--green-s)}
-.celebrate h2{font-size:calc(25px * var(--font-scale, .8))}.celebrate p{color:var(--ink2)}
+.celebrate h2{font-size:calc(22px * var(--font-scale, 1))}.celebrate p{color:var(--ink2)}
 canvas.confetti{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:130}
 
 /* checklist (owner activation) */
@@ -547,7 +550,7 @@ dialog{border-radius:24px}
 
 /* long button labels wrap instead of pushing the page sideways on small phones */
 .btn{max-width:100%;white-space:normal;text-align:center;line-height:1.25}
-body{font-size:calc(15px * var(--font-scale,.8))}
+body{font-size:calc(15px * var(--font-scale,1))}
 
 /* ---------- mobile app install prompt ---------- */
 .install-prompt{position:fixed;z-index:60;left:12px;right:12px;bottom:calc(var(--tabs, 62px) + 10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 10px 32px #17251d24}

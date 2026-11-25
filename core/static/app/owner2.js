@@ -114,18 +114,90 @@
     if (lines.length > maxLines) { lines.length = maxLines; let l = lines[maxLines - 1]; while (l.length > 1 && ctx.measureText(l + '…').width > maxW) l = l.slice(0, -1); lines[maxLines - 1] = l + '…'; }
     return lines;
   }
+  const QR_CARD_THEMES = {
+    cafe: { icon: '☕', label: 'Cafe & coffee', hi: 'कैफ़े और कॉफ़ी', accent: '#8a4b2a', soft: '#f8eee5' },
+    restaurant: { icon: '🍽️', label: 'Restaurant & dining', hi: 'रेस्तराँ', accent: '#c24132', soft: '#fff0eb' },
+    grocery: { icon: '🛒', label: 'Grocery & convenience', hi: 'किराना और सुविधा स्टोर', accent: '#39804b', soft: '#edf7e9' },
+    retail: { icon: '🛍️', label: 'Fashion & retail', hi: 'फ़ैशन और रिटेल', accent: '#7546a8', soft: '#f3edfb' },
+    salon: { icon: '✂', label: 'Salon & wellness', hi: 'सैलून और वेलनेस', accent: '#bd4f78', soft: '#fcecf2' },
+    fitness: { icon: '🏋️', label: 'Fitness & studios', hi: 'फ़िटनेस और स्टूडियो', accent: '#176a91', soft: '#e9f4f9' },
+    services: { icon: '🛠️', label: 'Repair, clinic & services', hi: 'रिपेयर, क्लिनिक और सेवाएँ', accent: '#3d5a80', soft: '#e9eff6' },
+    other: { icon: '🏪', label: 'Shop & rewards', hi: 'दुकान और इनाम', accent: '#5e35b1', soft: '#f0eafa' }
+  };
+  function drawCategoryArt(ctx, category, x, y, scale, color) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale);
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const line = (...points) => { ctx.beginPath(); ctx.moveTo(points[0], points[1]); for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]); ctx.stroke(); };
+    const circle = (cx, cy, r) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); };
+    const rounded = (rx, ry, w, h, r) => { ctx.beginPath(); ctx.roundRect(rx, ry, w, h, r); ctx.stroke(); };
+    switch (category) {
+      case 'salon':
+        rounded(12, 6, 40, 67, 8);
+        line(20, 17, 44, 17); line(20, 27, 44, 27); line(20, 37, 44, 37); line(20, 47, 44, 47); line(20, 57, 44, 57);
+        circle(73, 20, 9); circle(92, 20, 9); line(68, 27, 91, 56); line(97, 27, 74, 56); circle(81, 43, 3);
+        rounded(66, 63, 26, 18, 7); line(72, 81, 67, 94); line(86, 81, 91, 94); line(92, 72, 101, 72);
+        break;
+      case 'cafe':
+        rounded(12, 17, 56, 42, 7); ctx.beginPath(); ctx.arc(68, 31, 13, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+        line(17, 67, 77, 67); line(28, 8, 24, 1); line(45, 8, 45, 0); line(61, 8, 66, 1);
+        break;
+      case 'restaurant':
+        line(23, 8, 23, 43); line(13, 8, 13, 22); line(33, 8, 33, 22); line(13, 22, 33, 22); line(23, 43, 23, 70);
+        line(75, 8, 75, 70); ctx.beginPath(); ctx.ellipse(75, 27, 12, 19, 0, 0, Math.PI * 2); ctx.stroke();
+        break;
+      case 'grocery':
+        line(12, 20, 88, 20); line(19, 20, 26, 68); line(81, 20, 74, 68); line(26, 68, 74, 68);
+        line(34, 20, 40, 68); line(50, 20, 50, 68); line(66, 20, 60, 68); line(38, 20, 49, 5); line(62, 20, 51, 5);
+        break;
+      case 'retail':
+        rounded(15, 25, 70, 49, 8); ctx.beginPath(); ctx.arc(50, 27, 17, Math.PI, 0); ctx.stroke();
+        break;
+      case 'fitness':
+        rounded(39, 39, 22, 22, 5); line(30, 30, 30, 70); line(19, 37, 19, 63); line(70, 30, 70, 70); line(81, 37, 81, 63);
+        line(19, 50, 30, 50); line(70, 50, 81, 50); break;
+      case 'services':
+        circle(27, 25, 13); circle(73, 67, 13); line(37, 35, 63, 59); line(15, 13, 11, 5); line(37, 13, 43, 7);
+        break;
+      default:
+        line(12, 39, 50, 12, 88, 39); line(20, 36, 20, 76); line(80, 36, 80, 76); line(20, 76, 80, 76);
+        rounded(42, 49, 17, 27, 3); line(29, 48, 36, 48); line(64, 48, 71, 48);
+    }
+    ctx.restore();
+  }
   async function drawQrCard(b) {
     const W = 1080, H = 1560, FONT = 'Inter, "Noto Sans Devanagari", -apple-system, "Segoe UI", sans-serif', hi = b.language === 'hi';
     try { await Promise.all([document.fonts.load('800 60px Inter'), document.fonts.load('500 30px Inter'), document.fonts.load('700 40px "Noto Sans Devanagari"')]); } catch (e) { /* system font fallback */ }
-    const [qr, logo] = await Promise.all([loadImg('/api/b/' + b.shop_code + '/qr.png'), b.logo_url ? loadImg(b.logo_url) : null]);
+    const [qr, logo, offletLogo] = await Promise.all([
+      loadImg('/api/b/' + b.shop_code + '/qr.png'),
+      b.logo_url ? loadImg(b.logo_url) : null,
+      loadImg('/icon.svg')
+    ]);
     if (!qr) throw new Error(t('Could not load the QR code. Check your connection.'));
+    if (!offletLogo) throw new Error(t('Could not load the OFFLet logo. Check your connection.'));
     const brand = /^#[0-9a-f]{6}$/i.test(b.brand_color || '') ? b.brand_color : '#5e35b1', onBrand = lum(brand) > .6 ? '#1c1530' : '#ffffff';
+    const theme = QR_CARD_THEMES[b.category] || QR_CARD_THEMES.other;
     const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
     const rr = (px, py, w, hh, r) => { x.beginPath(); x.roundRect ? x.roundRect(px, py, w, hh, r) : x.rect(px, py, w, hh); };
-    x.fillStyle = brand; x.fillRect(0, 0, W, H);
+    const backdrop = x.createLinearGradient(0, 0, W, H); backdrop.addColorStop(0, brand); backdrop.addColorStop(1, theme.accent);
+    x.fillStyle = backdrop; x.fillRect(0, 0, W, H);
     x.fillStyle = '#fff'; rr(48, 48, W - 96, 1464, 56); x.fill();
+    x.fillStyle = theme.accent; rr(48, 48, W - 96, 14, 7); x.fill();
+    x.drawImage(offletLogo, 88, 78, 72, 72);
+    x.textAlign = 'left'; x.textBaseline = 'middle'; x.fillStyle = '#3f2380'; x.font = '800 40px ' + FONT; x.fillText('OFFLet', 174, 114);
+    const categoryLabel = hi ? theme.hi : theme.label;
+    x.font = '700 22px ' + FONT;
+    const badgeWidth = Math.min(500, x.measureText(categoryLabel).width + 92), badgeX = W - 88 - badgeWidth;
+    x.fillStyle = theme.soft; rr(badgeX, 78, badgeWidth, 72, 36); x.fill();
+    x.textAlign = 'left'; x.fillStyle = theme.accent; x.font = '700 32px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillText(theme.icon, badgeX + 22, 114);
+    x.font = '700 22px ' + FONT; x.fillText(categoryLabel, badgeX + 64, 114);
     x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+    x.globalAlpha = .12;
+    drawCategoryArt(x, b.category, 96, 220, 1.15, theme.accent);
+    drawCategoryArt(x, b.category, 900, 220, 1.15, theme.accent);
+    x.globalAlpha = 1;
     /* logo or initial */
+    x.fillStyle = theme.soft; x.beginPath(); x.arc(W / 2, 178, 84, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = theme.accent; x.lineWidth = 6; x.beginPath(); x.arc(W / 2, 178, 80, 0, Math.PI * 2); x.stroke();
     x.save(); x.beginPath(); x.arc(W / 2, 178, 72, 0, Math.PI * 2); x.clip();
     if (logo) { const k = Math.max(144 / logo.width, 144 / logo.height); x.fillStyle = '#fff'; x.fillRect(W / 2 - 72, 106, 144, 144); x.drawImage(logo, W / 2 - logo.width * k / 2, 178 - logo.height * k / 2, logo.width * k, logo.height * k); }
     else { x.fillStyle = brand; x.fillRect(W / 2 - 72, 106, 144, 144); }
@@ -137,7 +209,8 @@
     if (b.tagline) { x.fillStyle = '#6b6485'; x.font = '500 32px ' + FONT; wrapText(x, b.tagline, 860, 1).forEach(l => { x.fillText(l, W / 2, y + 4); y += 40; }); }
     /* QR in a brand-coloured frame */
     const qy = Math.max(y + 24, 470), qs = 600;
-    x.strokeStyle = brand; x.lineWidth = 10; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.stroke();
+    x.fillStyle = theme.soft; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.fill();
+    x.strokeStyle = theme.accent; x.lineWidth = 8; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.stroke();
     x.imageSmoothingEnabled = false; x.drawImage(qr, W / 2 - qs / 2, qy, qs, qs);
     /* call to action */
     const cy = qy + qs + 70; x.font = '800 46px ' + FONT; const label = hi ? 'स्कैन करें और इनाम पाएं' : 'Scan to join rewards', pw = Math.min(900, x.measureText(label).width + 120);
@@ -249,7 +322,7 @@
   };
 
   /* ---------- billing ---------- */
-  const loadRz = () => new Promise((res, rej) => { if (window.Razorpay) return res(); const s = h('script', { src: 'https://checkout.razorpay.com/v1/checkout.js', onload: res, onerror: () => rej(new Error(t('Could not load the payment window. Check your connection.'))) }); document.head.appendChild(s); });
+  const loadRz = () => FX.loadRazorpay();
   R.billing = async function () {
     const s = await FX.loadSub();
     const plan = k => s.plans[k];

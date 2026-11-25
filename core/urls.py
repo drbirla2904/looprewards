@@ -41,6 +41,7 @@ urlpatterns = [
     path("admin/stats/", ex.admin_stats), path("auth/accept/", ex.accept_terms), path("billing/autopay/", b.autopay),
     path("billing/autopay/verify/", b.autopay_verify), path("billing/autopay/cancel/", b.autopay_cancel),
     path("billing/", b.status), path("plans/", b.public_plans), path("billing/order/", b.create_order), path("billing/verify/", b.verify),
+    path("billing/donation/order/", b.donation_order), path("billing/donation/verify/", b.donation_verify),
     path("billing/webhook/", b.webhook), path("billing/upi/", b.upi_submit), path("billing/upi-qr.png", b.upi_qr),
     # ---- v2 growth layer ----
     path("auth/logout/", ev.logout),
