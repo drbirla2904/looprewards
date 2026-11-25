@@ -29,7 +29,7 @@ class OwnerReferralBase(APITestCase):
         Vendor.objects.filter(user=user).update(status=status, rate=20)
         return Vendor.objects.get(user=user)
 
-    def pay(self, owner, amount=29900):
+    def pay(self, owner, amount=9900):
         p = Payment.objects.create(owner=owner, plan="monthly", amount=amount, method="gateway", status="paid")
         vendors.accrue(p)
         return p
@@ -82,11 +82,11 @@ class WalletTests(OwnerReferralBase):
         subscription = get_sub(self.referrer)
         subscription.paid_until = timezone.now() + timedelta(days=365)
         subscription.save(update_fields=["paid_until"])
-        Payment.objects.create(owner=self.referrer, plan="yearly", amount=299900, method="gateway", status="paid")
+        Payment.objects.create(owner=self.referrer, plan="yearly", amount=99900, method="gateway", status="paid")
         self.friend = self.make_owner("9310000002", upi="friend@upi", referred_by=self.v)
 
     def amount(self):
-        return int(Decimal(29900) * 100 / 118 * 20 / 100)
+        return int(Decimal(9900) * 100 / 118 * 20 / 100)
 
     def test_referred_business_payment_credits_wallet_on_hold_and_notifies(self):
         self.pay(self.friend)
@@ -112,7 +112,7 @@ class WalletTests(OwnerReferralBase):
         self.assertEqual(Commission.objects.count(), 0)
 
     def test_owner_referral_requires_yearly_plan_not_monthly(self):
-        Payment.objects.create(owner=self.referrer, plan="monthly", amount=29900, method="gateway", status="paid")
+        Payment.objects.create(owner=self.referrer, plan="monthly", amount=9900, method="gateway", status="paid")
         self.pay(self.friend)
         self.assertEqual(Commission.objects.count(), 0)
 

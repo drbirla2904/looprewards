@@ -31,7 +31,7 @@ class VendorBase(APITestCase):
             s.save()
         return o
 
-    def pay(self, owner, amount=29900):
+    def pay(self, owner, amount=9900):
         return Payment.objects.create(owner=owner, plan="monthly", amount=amount, method="gateway", status="paid")
 
     def auth(self):
@@ -44,7 +44,7 @@ class TierTests(VendorBase):
         vendors.accrue(self.pay(self.referred_owner("9200000010")))
         c = Commission.objects.get()
         self.assertEqual(c.rate, Decimal("20"))
-        base = Decimal(29900) * 100 / 118
+        base = Decimal(9900) * 100 / 118
         self.assertEqual(c.amount, int(base * 20 / 100))
         self.assertEqual(vendors.tier_for(v)["name"], "Starter")
 
@@ -106,7 +106,7 @@ class KitTests(VendorBase):
         Vendor.objects.update(status="approved")
         d = self.client.get("/api/vendor/kit/").data
         self.assertIn(self.vendor.code, d["referral_url"])
-        self.assertEqual(d["plans"]["monthly"]["price"], 299)
+        self.assertEqual(d["plans"]["monthly"]["price"], 99)
 
     def test_flyer_is_public_for_approved_vendors_only_and_escapes_names(self):
         v = self.make_vendor()

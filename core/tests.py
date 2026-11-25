@@ -327,12 +327,22 @@ from .billing import mark_paid
 
 @override_settings(RAZORPAY_WEBHOOK_SECRET="whsec")
 class BillingTest(APITestCase):
+    def test_subscription_prices_are_99_monthly_and_999_yearly(self):
+        owner = User.objects.create_user("9999999942", "secret1", role="owner")
+        self.client.force_authenticate(user=owner)
+        billing = self.client.get("/api/billing/").data
+        public = self.client.get("/api/plans/").data
+        self.assertEqual(billing["plans"]["monthly"]["amount"], 9900)
+        self.assertEqual(billing["plans"]["yearly"]["amount"], 99900)
+        self.assertEqual(public["plans"]["monthly"]["amount"], 9900)
+        self.assertEqual(public["plans"]["yearly"]["amount"], 99900)
+
     def test_status_explains_expiry_window_and_available_payment_methods(self):
         owner = User.objects.create_user("9999999933", "secret1", role="owner")
         subscription = get_sub(owner)
         subscription.paid_until = timezone.now() - _td(days=1)
         subscription.save()
-        Payment.objects.create(owner=owner, plan="monthly", amount=29900, method="upi",
+        Payment.objects.create(owner=owner, plan="monthly", amount=9900, method="upi",
                                status="pending", utr="123456789012")
         self.client.force_authenticate(user=owner)
 
@@ -371,10 +381,10 @@ class BillingTest(APITestCase):
                 order = self.client.post("/api/billing/order/", {"plan": "monthly"}, format="json")
             self.assertEqual(order.status_code, 200)
             self.assertEqual(order.data, {
-                "order_id": "order_test_123", "amount": 29900, "currency": "INR", "key": "rzp_test_demo",
+                "order_id": "order_test_123", "amount": 9900, "currency": "INR", "key": "rzp_test_demo",
             })
             gateway.assert_called_once_with("orders", {
-                "amount": 29900, "currency": "INR", "receipt": gateway.call_args.args[1]["receipt"],
+                "amount": 9900, "currency": "INR", "receipt": gateway.call_args.args[1]["receipt"],
                 "notes": {"owner_id": str(owner.pk), "plan": "monthly"},
             })
             payment_id = "pay_test_123"
@@ -536,10 +546,10 @@ class BillingTest(APITestCase):
 
     def test_payment_captured_webhook_activates_one_time_order_once(self):
         owner = User.objects.create_user("9999999929", "secret1", role="owner")
-        payment = Payment.objects.create(owner=owner, plan="monthly", amount=29900,
+        payment = Payment.objects.create(owner=owner, plan="monthly", amount=9900,
             method="gateway", status="created", order_id="order_webhook_1")
         body = json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": {
-            "id": "pay_webhook_1", "order_id": payment.order_id, "amount": 29900, "currency": "INR",
+            "id": "pay_webhook_1", "order_id": payment.order_id, "amount": 9900, "currency": "INR",
         }}}}).encode()
         signature = hmac.new(b"whsec", body, hashlib.sha256).hexdigest()
         with override_settings(RAZORPAY_WEBHOOK_SECRET="whsec"):
@@ -609,7 +619,7 @@ class BillingTest(APITestCase):
         subscription.save()
         body = json.dumps({"event": "subscription.charged", "payload": {
             "subscription": {"entity": {"id": "sub_1", "plan_id": "plan_monthly"}},
-            "payment": {"entity": {"id": "pay_1", "order_id": "order_1", "amount": 29900}},
+            "payment": {"entity": {"id": "pay_1", "order_id": "order_1", "amount": 9900}},
         }}).encode()
         sig = hmac.new(b"whsec", body, hashlib.sha256).hexdigest()
         with override_settings(RZP_PLAN_IDS={"monthly": "plan_monthly", "yearly": "plan_yearly"}):
@@ -706,7 +716,7 @@ class VendorTest(APITestCase):
         referred_owner = User.objects.get(username="9999999878")
         self.assertEqual(referred_owner.referred_by_id, vendor.id)
 
-        payment = Payment.objects.create(owner=referred_owner, plan="monthly", amount=29900,
+        payment = Payment.objects.create(owner=referred_owner, plan="monthly", amount=9900,
                                          method="gateway", status="pending")
         mark_paid(payment.pk)
         commission = Commission.objects.get(payment=payment)
@@ -766,10 +776,10 @@ class VendorTest(APITestCase):
         vu = User.objects.create_user("8888888888", password="x", role="vendor")
         v = Vendor.objects.create(user=vu, code="ABC123", pan="ABCDE1234F", upi_id="v@upi", status="approved", rate=20)
         u = User.objects.create_user("9999999995", password="x", role="owner", referred_by=v)
-        p = Payment.objects.create(owner=u, plan="monthly", amount=29900, method="upi", status="pending")
+        p = Payment.objects.create(owner=u, plan="monthly", amount=9900, method="upi", status="pending")
         mark_paid(p.pk); mark_paid(p.pk)  # idempotent
         c = Commission.objects.get()
-        self.assertEqual(c.amount, 5067)  # 20% of 29900/1.18 paise
+        self.assertEqual(c.amount, 1678)  # 20% of 9900/1.18 paise
         reverse(p)
         c.refresh_from_db(); self.assertEqual(c.status, "reversed")
 
@@ -1202,7 +1212,7 @@ class LifecycleLegalTest(APITestCase):
         g = RewardGrant.objects.create(profile=prof, reward=rw, expires_at=timezone.now() + _td(days=10))
         self.assertEqual((s.state, b.is_live), ("grace", False))
         before = g.expires_at
-        p = Payment.objects.create(owner=o, plan="monthly", amount=29900, method="upi", status="pending", utr="123456789012")
+        p = Payment.objects.create(owner=o, plan="monthly", amount=9900, method="upi", status="pending", utr="123456789012")
         mark_paid(p.pk)
         s.refresh_from_db(); g.refresh_from_db(); b = Business.objects.get(pk=b.pk)
         self.assertEqual((s.state, b.is_live), ("active", True))

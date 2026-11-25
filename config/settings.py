@@ -55,8 +55,8 @@ REST_FRAMEWORK = {
 
 # ---- Billing ----
 TRIAL_DAYS, GRACE_DAYS = 14, 30
-PLANS = {"monthly": {"amount": 29900, "days": 30, "label": "Monthly"},      # paise (₹299)
-         "yearly": {"amount": 299900, "days": 365, "label": "Yearly"}}     # ₹2,999
+PLANS = {"monthly": {"amount": 9900, "days": 30, "label": "Monthly"},       # paise (₹99)
+         "yearly": {"amount": 99900, "days": 365, "label": "Yearly"}}      # ₹999
 RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_ID", ""), env("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", "")
 PLATFORM_UPI_ID, PLATFORM_UPI_NAME = env("PLATFORM_UPI_ID", ""), env("PLATFORM_UPI_NAME", "OFFLet")

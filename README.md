@@ -28,8 +28,9 @@ notifications, backups, and restore on a staging domain. External provider integ
 your own credentials and end-to-end verification; passing the local tests does not verify them.
 
 ## Billing
-- 14-day trial (no card), then ₹299/mo or ₹2,999/yr (edit `PLANS` in settings). 30-day grace: profile/QR paused, print kit + progress kept.
+- 14-day trial (no card), then ₹99/mo or ₹999/yr (edit `PLANS` in settings). 30-day grace: profile/QR paused, print kit + progress kept.
 - Online: Razorpay Checkout (UPI/cards/netbanking); payment is verified by signature and activated immediately. Add webhook `https://<domain>/api/billing/webhook/`, events `payment.captured` + `order.paid`.
+- If `RAZORPAY_PLAN_MONTHLY` or `RAZORPAY_PLAN_YEARLY` is configured, point it to a Razorpay plan priced at the new amount. Existing AutoPay subscriptions retain their Razorpay terms until canceled and set up again.
 - Manual UPI: set `PLATFORM_UPI_ID`; owner pays the displayed amount and submits the UTR plus a JPEG/PNG/WebP screenshot (max 5 MB). An admin checks the bank statement and screenshot in /admin -> Payments, then approves the submission. Screenshots are stored privately and included in protected backups.
 
 ## Invoices and reminders

@@ -29,13 +29,13 @@ class SubscriptionFlowTests(GrowthBase):
         return list(Notification.objects.filter(user=user).values_list("text", flat=True))
 
     def test_payment_success_notifies_owner_and_status_lists_history(self):
-        p = Payment.objects.create(owner=self.owner(), plan="monthly", amount=29900, method="upi", status="pending", utr="U1")
+        p = Payment.objects.create(owner=self.owner(), plan="monthly", amount=9900, method="upi", status="pending", utr="U1")
         mark_paid(p.pk)
         self.assertTrue(any("Payment received" in t for t in self.texts(self.owner())))
         self.as_owner()
         d = self.client.get("/api/billing/").data
         self.assertEqual(d["payments"][0]["status"], "paid")
-        self.assertEqual(d["yearly_saving"], 29900 * 12 - 299900)
+        self.assertEqual(d["yearly_saving"], 9900 * 12 - 99900)
         self.assertIsNone(d["last_rejected"])
 
     def test_admin_reject_only_touches_pending_upi_and_notifies(self):
@@ -44,8 +44,8 @@ class SubscriptionFlowTests(GrowthBase):
         from django.contrib.messages.storage.fallback import FallbackStorage
         from django.test import RequestFactory
         o = self.owner()
-        paid = Payment.objects.create(owner=o, plan="monthly", amount=29900, method="upi", status="paid", utr="U3")
-        pend = Payment.objects.create(owner=o, plan="monthly", amount=29900, method="upi", status="pending", utr="U2")
+        paid = Payment.objects.create(owner=o, plan="monthly", amount=9900, method="upi", status="paid", utr="U3")
+        pend = Payment.objects.create(owner=o, plan="monthly", amount=9900, method="upi", status="pending", utr="U2")
         rf = RequestFactory().post("/"); rf.session = {}; rf._messages = FallbackStorage(rf)
         PaymentAdmin(Payment, dj_admin.site).reject(rf, Payment.objects.all())
         pend.refresh_from_db(); paid.refresh_from_db()
@@ -56,7 +56,7 @@ class SubscriptionFlowTests(GrowthBase):
 
     def test_refund_removes_paid_period_and_pauses_shop(self):
         o = self.owner()
-        p = Payment.objects.create(owner=o, plan="monthly", amount=29900, method="upi", status="pending", utr="U4")
+        p = Payment.objects.create(owner=o, plan="monthly", amount=9900, method="upi", status="pending", utr="U4")
         get_sub(o); Subscription.objects.filter(owner=o).update(trial_ends=timezone.now() - timedelta(days=40))
         mark_paid(p.pk)
         self.assertEqual(get_sub(o).state, "active")
@@ -68,7 +68,7 @@ class SubscriptionFlowTests(GrowthBase):
 
     def test_refund_keeps_remaining_free_trial(self):
         o = self.owner()
-        p = Payment.objects.create(owner=o, plan="monthly", amount=29900, method="upi", status="pending", utr="U5")
+        p = Payment.objects.create(owner=o, plan="monthly", amount=9900, method="upi", status="pending", utr="U5")
         mark_paid(p.pk)  # paid early, trial still running
         revoke_period(p.pk)
         self.assertEqual(get_sub(o).state, "trial")
@@ -81,7 +81,7 @@ class SubscriptionFlowTests(GrowthBase):
         get_sub(o); Subscription.objects.filter(owner=o).update(rzp_sub_id="sub_1", rzp_autorenew_active=True)
         body = json.dumps({"event": "subscription.charged", "payload": {
             "subscription": {"entity": {"id": "sub_1", "plan_id": "plan_m"}},
-            "payment": {"entity": {"id": "pay_1", "amount": 29900, "order_id": "order_1"}}}}).encode()
+            "payment": {"entity": {"id": "pay_1", "amount": 9900, "order_id": "order_1"}}}}).encode()
         sig = hmac.new(b"w", body, hashlib.sha256).hexdigest()
         for _ in range(2):
             self.assertEqual(self.client.post("/api/billing/webhook/", body, content_type="application/json",
@@ -310,7 +310,7 @@ class AutoPayPlanTests(GrowthBase):
             r = self.client.post("/api/billing/autopay/", {"plan": "monthly"})
         self.assertEqual((r.status_code, r.data["subscription_id"]), (200, "sub_new"))
         plan_call = next(b for p, b in calls if p == "plans")
-        self.assertEqual((plan_call["period"], plan_call["item"]["amount"]), ("monthly", 29900))
+        self.assertEqual((plan_call["period"], plan_call["item"]["amount"]), ("monthly", 9900))
         sub_call = next(b for p, b in calls if p == "subscriptions")
         self.assertEqual(sub_call["plan_id"], "plan_new")
         self.assertEqual(GatewayPlan.objects.get(plan="monthly").rzp_plan_id, "plan_new")
