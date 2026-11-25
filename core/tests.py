@@ -938,7 +938,8 @@ class HindiPrintTest(APITestCase):
         for label in ("Earn Rewards", "Collect stamps", "Spin &amp; Win", "Shop Offers", "Refer &amp; Earn"):
             self.assertIn(label, html)
         self.assertEqual(html.count('class="feature '), 4)
-        self.assertIn("width:34mm", html)
+        self.assertIn("width:28mm", html)
+        self.assertIn("width:32%;height:25%", html)
         self.assertIn("height:75mm", html)
 
     def test_offlet_brand_is_on_all_shop_print_sizes(self):

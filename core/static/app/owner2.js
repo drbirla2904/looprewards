@@ -180,12 +180,12 @@
     const rr = (px, py, w, hh, r) => { x.beginPath(); x.roundRect ? x.roundRect(px, py, w, hh, r) : x.rect(px, py, w, hh); };
     const feature = (icon, title, detail, px, py) => {
       x.save();
-      x.fillStyle = theme.soft; rr(px, py, 210, 150, 30); x.fill();
-      x.strokeStyle = theme.accent + '35'; x.lineWidth = 3; rr(px, py, 210, 150, 30); x.stroke();
+      x.fillStyle = theme.soft; rr(px, py, 240, 180, 30); x.fill();
+      x.strokeStyle = theme.accent + '35'; x.lineWidth = 3; rr(px, py, 240, 180, 30); x.stroke();
       x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.font = '700 52px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillStyle = theme.accent; x.fillText(icon, px + 105, py + 40);
-      x.fillStyle = '#1c1530'; x.font = '800 23px ' + FONT; x.fillText(title, px + 105, py + 91);
-      x.fillStyle = '#6b6485'; x.font = '500 18px ' + FONT; x.fillText(detail, px + 105, py + 122);
+      x.font = '700 60px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillStyle = theme.accent; x.fillText(icon, px + 120, py + 40);
+      x.fillStyle = '#1c1530'; x.font = '800 27px ' + FONT; x.fillText(title, px + 120, py + 112);
+      x.fillStyle = '#6b6485'; x.font = '500 20px ' + FONT; x.fillText(detail, px + 120, py + 150);
       x.restore();
     };
     const backdrop = x.createLinearGradient(0, 0, W, H); backdrop.addColorStop(0, brand); backdrop.addColorStop(1, theme.accent);
@@ -218,12 +218,12 @@
     lines = wrapText(x, b.name, 860, 2); let y = 318; lines.forEach(l => { x.fillText(l, W / 2, y); y += size + 18; });
     if (b.tagline) { x.fillStyle = '#6b6485'; x.font = '500 32px ' + FONT; wrapText(x, b.tagline, 860, 1).forEach(l => { x.fillText(l, W / 2, y + 4); y += 40; }); }
     /* Fixed feature callouts frame the same centered QR on every shop's card. */
-    const qy = Math.max(y + 30, 500), qs = 420, featureX = 88;
-    const featureBottom = qy + qs - 150;
+    const qy = Math.max(y + 30, 500), qs = 360, featureX = 64, featureWidth = 240, featureHeight = 180;
+    const featureBottom = qy + qs - featureHeight + 32;
     feature('🎁', hi ? 'रिवॉर्ड पाएँ' : 'Earn Rewards', hi ? 'स्टैम्प जमा करें' : 'Collect stamps', featureX, qy + 4);
-    feature('🎡', hi ? 'स्पिन करें' : 'Spin & Win', hi ? 'इनाम जीतें' : 'Spin for a prize', W - featureX - 210, qy + 4);
+    feature('🎡', hi ? 'स्पिन करें' : 'Spin & Win', hi ? 'इनाम जीतें' : 'Spin for a prize', W - featureX - featureWidth, qy + 4);
     feature('📣', hi ? 'ऑफ़र देखें' : 'Shop Offers', hi ? 'खास डील पाएँ' : 'Discover shop deals', featureX, featureBottom);
-    feature('💰', hi ? 'रेफ़र करें' : 'Refer & Earn', hi ? 'दोस्तों को बुलाएँ' : 'Share the rewards', W - featureX - 210, featureBottom);
+    feature('💰', hi ? 'रेफ़र करें' : 'Refer & Earn', hi ? 'दोस्तों को बुलाएँ' : 'Share the rewards', W - featureX - featureWidth, featureBottom);
     /* QR in a brand-coloured frame */
     x.fillStyle = theme.soft; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.fill();
     x.strokeStyle = theme.accent; x.lineWidth = 8; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.stroke();
