@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Max, Min, Q, Sum
+from django.db.models import Avg, Count, Max, Min, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -316,15 +316,25 @@ def shop_state(profile):
 
 def wallet(user):
     shops, total_rewards, total_visits = [], 0, 0
-    for p in user.profiles.filter(hidden_from_customer=False).select_related("business"):
+    profiles = list(user.profiles.filter(hidden_from_customer=False).select_related("business"))
+    ratings = Feedback.objects.filter(
+        profile__business_id__in=[p.business_id for p in profiles]
+    ).filter(
+        Q(entry__status="approved") | Q(booking__status="completed")
+    ).values("profile__business_id").annotate(average=Avg("rating"), count=Count("id"))
+    rating_by_business = {r["profile__business_id"]: r for r in ratings}
+    for p in profiles:
         biz = p.business
         if biz.status == "closed":
             continue
         st = shop_state(p)
+        rating = rating_by_business.get(biz.id)
         upcoming = Booking.objects.filter(profile=p, status__in=("requested", "confirmed"),
                                           starts_at__gte=timezone.now()).select_related("service").order_by("starts_at").first()
         shops.append({
             "shop": biz.name, "shop_code": biz.shop_code, "category": biz.category, "brand_color": biz.brand_color,
+            "rating_average": round(float(rating["average"]), 1) if rating else None,
+            "rating_count": rating["count"] if rating else 0,
             "logo_url": biz.logo.url if biz.logo else "", "live": biz.is_live,
             "bookings_enabled": biz.bookings_enabled, "referral_code": ensure_ref_code(p),
             "visits": st["visits"], "tier": st["tier"], "streak": st["streak"],

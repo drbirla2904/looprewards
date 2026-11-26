@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.authtoken.models import Token
@@ -15,7 +15,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from . import services
-from .models import (Vendor, Business, CustomerProfile, Program, PurchaseEntry, Reward, Task, User,
+from .models import (Vendor, Business, CustomerProfile, Feedback, Program, PurchaseEntry, Reward, Task, User,
                      new_shop_code)
 from .notify import announce_shop_customers
 from .serializers import BusinessSerializer, EntrySerializer, ProgramSerializer, ShopOfferSerializer
@@ -120,9 +120,19 @@ def discover_shops(request):
     joined_ids = set()
     if request.user.is_authenticated:
         joined_ids = set(request.user.profiles.filter(hidden_from_customer=False).values_list("business_id", flat=True))
-    for biz in shops.select_related("owner").order_by("name")[:200]:
+    businesses = list(shops.select_related("owner").order_by("name")[:200])
+    rating_rows = Feedback.objects.filter(
+        profile__business_id__in=[biz.id for biz in businesses]
+    ).filter(
+        Q(entry__status="approved") | Q(booking__status="completed")
+    ).values("profile__business_id").annotate(
+        average=Avg("rating"), count=Count("id")
+    )
+    ratings = {row["profile__business_id"]: row for row in rating_rows}
+    for biz in businesses:
         if not biz.is_live:
             continue
+        rating = ratings.get(biz.id)
         distance_km = None
         if lat is not None and lng is not None and biz.lat is not None and biz.lng is not None:
             rad = math.pi / 180
@@ -135,6 +145,8 @@ def discover_shops(request):
             "logo_url": biz.logo.url if biz.logo else "", "lat": biz.lat, "lng": biz.lng,
             "distance_km": round(distance_km, 1) if distance_km is not None else None,
             "joined": biz.id in joined_ids,
+            "rating_average": round(float(rating["average"]), 1) if rating else None,
+            "rating_count": rating["count"] if rating else 0,
         })
     if lat is not None and lng is not None:
         out.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] if x["distance_km"] is not None else 0, x["name"]))
@@ -149,6 +161,11 @@ def public_business(request, code):
     if not biz.is_live:
         return Response({"name": biz.name, "paused": True})
     data = BusinessSerializer(biz).data
+    rating = Feedback.objects.filter(profile__business=biz).filter(
+        Q(entry__status="approved") | Q(booking__status="completed")
+    ).aggregate(average=Avg("rating"), count=Count("id"))
+    data["rating_average"] = round(float(rating["average"]), 1) if rating["average"] is not None else None
+    data["rating_count"] = rating["count"]
     today = timezone.localdate()
     active_programs = biz.programs.filter(active=True).filter(
         Q(start__isnull=True) | Q(start__lte=today)

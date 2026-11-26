@@ -12,11 +12,21 @@
     ['x_url', 'X', 'X', 'x']
   ];
 
+  function ratingSummary(shop) {
+    const average = shop.rating_average;
+    const count = Number(shop.rating_count || 0);
+    if (!count) return null;
+    return h('span.shop-rating', { 'aria-label': t('Average rating: {rating} out of 5 from {count} ratings', {
+      rating: Number(average).toFixed(1), count
+    }) }, FX.stars(Number(average)), h('b', Number(average).toFixed(1)),
+    h('small', t('{n} ratings', { n: count })));
+  }
+
   /* ---------- home: one punch card per shop ---------- */
   function shopCard(s) {
     const b = s.best, tier = s.tier;
     return h('a.shopcard' + (s.active_rewards ? '.ready' : ''), { href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color), 'aria-label': s.shop },
-      h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.shop)), h('div.grow', h('h3', s.shop), h('small', t(s.category === 'other' ? 'Shop' : s.category.charAt(0).toUpperCase() + s.category.slice(1)))),
+      h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.shop)), h('div.grow', h('h3', s.shop), ratingSummary(s), h('small', t(s.category === 'other' ? 'Shop' : s.category.charAt(0).toUpperCase() + s.category.slice(1)))),
         tierPill(tier.tier)),
       b ? h('div.stack.s', h('div.row.between', h('small', b.title), h('small.num', FX.fmtVal(b.type, b.current) + ' / ' + FX.fmtVal(b.type, b.target))),
         stampRow(b.current, b.target, b.type) || h('div.meter', h('i', { style: { width: b.pct + '%' } })),
@@ -43,9 +53,9 @@
         discoverBox.replaceChildren(...(r.shops.length ? r.shops.map(s => h('a.shopcard', {
           href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color)
         }, h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.name)),
-          h('div.grow', h('h3', s.name), h('small', s.category === 'other' ? t('Shop') : s.category)),
+          h('div.grow', h('h3', s.name), ratingSummary(s), h('small', s.category === 'other' ? t('Shop') : s.category)),
           s.distance_km != null ? h('small.pill', s.distance_km < 1 ? '< 1 km' : s.distance_km + ' km') : null),
-          s.tagline ? h('small', s.tagline) : null,
+        s.tagline ? h('small', s.tagline) : null,
           s.address ? h('small.muted', s.address) : null,
           h('span.pill', s.joined ? t('Joined') : t('View shop')))) : [empty('No shops found', 'Try another name or area.')]));
       } catch (e) {
@@ -179,7 +189,7 @@
       h('a.social-link.' + style, { href: biz[key], target: '_blank', rel: 'noopener noreferrer', title: t('Follow on {platform}', { platform: name }), 'aria-label': t('Follow on {platform}', { platform: name }) }, glyph));
     const links = [biz.phone && h('a.btn.ghost.sm', { href: 'tel:' + biz.phone }, t('Call')), biz.whatsapp && h('a.btn.ghost.sm', { href: 'https://wa.me/' + biz.whatsapp.replace(/\D/g, ''), target: '_blank', rel: 'noopener' }, 'WhatsApp'), directionsUrl && h('a.btn.ghost.sm', { href: directionsUrl, target: '_blank', rel: 'noopener' }, t('Directions'))].filter(Boolean);
     return h('div.stack', h('div.shophead', { style: c }, h('div.logo-s', biz.logo_url ? h('img', { src: biz.logo_url, alt: '' }) : FX.initial(biz.name)),
-      h('div.grow', h('h1', biz.name), biz.tagline ? h('div.small', biz.tagline) : null, biz.address ? h('div.small.muted', biz.address) : null)),
+      h('div.grow', h('h1', biz.name), ratingSummary(biz), biz.tagline ? h('div.small', biz.tagline) : null, biz.address ? h('div.small.muted', biz.address) : null)),
       biz.about ? h('p.muted', biz.about) : null, biz.hours ? h('p.small.muted', t('Open: {h}', { h: biz.hours })) : null,
       socialLinks.length ? h('div.row.wrap.social-links', h('small.muted', t('Follow this shop')), socialLinks) : null,
       links.length ? h('div.row.wrap', links) : null);
@@ -426,7 +436,7 @@
   /* ---------- history + rating ---------- */
   function rateModal(entry) {
     let v = 0; const c = inp({ maxlength: 300, ph: 'Tell the shop how it went (optional)' });
-    const m = modal(t('Rate your visit'), h('div.stack', FX.stars(0, n => { v = n; }), c, h('button.btn', { onclick: e => busy(e.target, async () => { if (!v) throw new Error(t('Choose a rating from 1 to 5.')); await api('feedback/', 'POST', Object.assign({ rating: v, comment: c.value }, entry)); m.close(); toast(t('Thanks for your feedback!')); FX.start(true); }) }, t('Send'))));
+    const m = modal(t('Rate your visit'), h('div.stack', h('p.muted', t('Your rating helps customers choose a shop.')), FX.stars(0, n => { v = n; }), c, h('button.btn', { onclick: e => busy(e.target, async () => { if (!v) throw new Error(t('Choose a rating from 1 to 5.')); await api('feedback/', 'POST', Object.assign({ rating: v, comment: c.value }, entry)); m.close(); toast(t('Thanks for your feedback!')); FX.start(true); }) }, t('Send'))));
   }
   function historyTab(biz, me) {
     return h('div.card', me.entries.length ? me.entries.map(e => h('div.li', h('div.grow', h('b', e.task_title), h('div.small.muted', FX.fmtDT(e.created_at))),

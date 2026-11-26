@@ -425,6 +425,32 @@ class BookingTests(GrowthBase):
 
 
 class FeedbackTests(GrowthBase):
+    def test_customer_ratings_are_summarized_on_public_shop_and_discovery(self):
+        public_url = f"/api/b/{self.code}/"
+        self.assertIsNone(self.client.get(public_url).data["rating_average"])
+        self.assertEqual(self.client.get(public_url).data["rating_count"], 0)
+
+        first = self.customer("9100000073")
+        first_entry = self.buy(first)
+        self.client.credentials(HTTP_AUTHORIZATION=first)
+        rated = self.client.post("/api/feedback/", {"entry": first_entry, "rating": 5}, format="json")
+        self.assertEqual(rated.status_code, 201, rated.data)
+
+        second = self.customer("9100000074")
+        second_entry = self.buy(second)
+        self.client.credentials(HTTP_AUTHORIZATION=second)
+        rated = self.client.post("/api/feedback/", {"entry": second_entry, "rating": 3}, format="json")
+        self.assertEqual(rated.status_code, 201, rated.data)
+
+        public = self.client.get(public_url).data
+        self.assertEqual((public["rating_average"], public["rating_count"]), (4.0, 2))
+        discovery = self.client.get("/api/shops/discover/").data["shops"]
+        shop = next(shop for shop in discovery if shop["shop_code"] == self.code)
+        self.assertEqual((shop["rating_average"], shop["rating_count"]), (4.0, 2))
+        self.client.credentials(HTTP_AUTHORIZATION=first)
+        wallet_shop = self.client.get("/api/me/wallet/").data["shops"][0]
+        self.assertEqual((wallet_shop["rating_average"], wallet_shop["rating_count"]), (4.0, 2))
+
     def test_rating_once_per_visit_and_low_rating_alerts_owner(self):
         cust = self.customer("9100000070")
         eid = self.buy(cust)
