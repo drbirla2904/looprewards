@@ -112,6 +112,33 @@ BLUEPRINTS = {
     },
 }
 
+ADDITIONAL_CATEGORIES = {
+    "agri_inputs": ("Seeds, fertilizer & pesticides", "बीज, उर्वरक और कीटनाशक", "🌱"),
+    "medical_store": ("Medical store & pharmacy", "मेडिकल स्टोर और फ़ार्मेसी", "💊"),
+    "books_stationery": ("Books & stationery", "किताबें और स्टेशनरी", "📚"),
+    "electronics": ("Electronics & appliances", "इलेक्ट्रॉनिक्स और उपकरण", "🔌"),
+    "hardware": ("Hardware & building supplies", "हार्डवेयर और निर्माण सामग्री", "🧰"),
+    "automotive": ("Automotive & spare parts", "ऑटोमोबाइल और स्पेयर पार्ट्स", "🛞"),
+    "pet_supplies": ("Pet supplies", "पालतू जानवरों की सामग्री", "🐾"),
+    "bakery_sweets": ("Bakery & sweets", "बेकरी और मिठाइयाँ", "🍰"),
+}
+
+for key, (label, hi, emoji) in ADDITIONAL_CATEGORIES.items():
+    blueprint = BLUEPRINTS["other"].copy()
+    blueprint.update({
+        "label": label,
+        "hi": hi,
+        "emoji": emoji,
+        "program": f"{label} Rewards",
+        "tasks": [
+            _task("Spend ₹2,000", "amount", 2000, _r("₹100 off an eligible purchase", "flat_off", 100, 30)),
+            _task("Visit 5 times", "visit", 5, _r("Shop-defined reward", "custom", 0, 30)),
+        ],
+        "welcome": _r("Welcome reward (shop-defined)", "custom", 0, 14),
+        "referral": _r("Referral reward (shop-defined)", "custom", 0, 30),
+    })
+    BLUEPRINTS[key] = blueprint
+
 
 def catalog():
     """Compact list for the picker UI."""

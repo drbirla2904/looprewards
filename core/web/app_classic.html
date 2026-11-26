@@ -1140,7 +1140,7 @@ function loadRewardActivity(host){
   body.querySelector('.reward-activity-retry').onclick=()=>loadRewardActivity(host)
  }).finally(()=>{host.dataset.loading='false'})
 }
-const BUSINESS_CATEGORIES={cafe:{label:'Cafe & coffee'},restaurant:{label:'Restaurant & dining'},grocery:{label:'Grocery & convenience'},retail:{label:'Fashion & retail'},salon:{label:'Salon & wellness'},fitness:{label:'Fitness & studios'},other:{label:'Other business'}};
+const BUSINESS_CATEGORIES={cafe:{label:'Cafe & coffee'},restaurant:{label:'Restaurant & dining'},grocery:{label:'Grocery & convenience'},retail:{label:'Fashion & retail'},salon:{label:'Salon & wellness'},fitness:{label:'Fitness & studios'},services:{label:'Repair, clinic & services'},agri_inputs:{label:'Seeds, fertilizer & pesticides'},medical_store:{label:'Medical store & pharmacy'},books_stationery:{label:'Books & stationery'},electronics:{label:'Electronics & appliances'},hardware:{label:'Hardware & building supplies'},automotive:{label:'Automotive & spare parts'},pet_supplies:{label:'Pet supplies'},bakery_sweets:{label:'Bakery & sweets'},other:{label:'Other business'}};
 function categoryOptions(selected){return Object.entries(BUSINESS_CATEGORIES).map(([key,value])=>'<option value="'+key+'"'+(key===selected?' selected':'')+'>'+value.label+'</option>').join('')}
 function owner(){return api('owner/businesses/').then(bs=>{A.className='owner-dashboard';A.innerHTML='<h2>My shop</h2><nav class=owner-tabs role=tablist aria-label="Shop sections"></nav><div id=ownerContent class=owner-content></div>';
  const tabItems=bs.length?[['overview','Overview'],['rewards','Rewards'],['customers','Customers'],['team','Team'],['settings','Settings'],['billing','Billing']]:[['overview','Overview'],['billing','Billing']];

@@ -15,6 +15,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from . import services
+from . import blueprints
 from .models import (Vendor, Business, CustomerProfile, Feedback, Program, PurchaseEntry, Reward, Task, User,
                      new_shop_code)
 from .notify import announce_shop_customers
@@ -133,6 +134,7 @@ def discover_shops(request):
         if not biz.is_live:
             continue
         rating = ratings.get(biz.id)
+        category = blueprints.BLUEPRINTS.get(biz.category, blueprints.BLUEPRINTS["other"])
         distance_km = None
         if lat is not None and lng is not None and biz.lat is not None and biz.lng is not None:
             rad = math.pi / 180
@@ -141,6 +143,7 @@ def discover_shops(request):
             distance_km = 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0, 1 - a)))
         out.append({
             "name": biz.name, "category": biz.category, "tagline": biz.tagline,
+            "category_label": category["label"], "category_label_hi": category["hi"],
             "address": biz.address, "shop_code": biz.shop_code, "brand_color": biz.brand_color,
             "logo_url": biz.logo.url if biz.logo else "", "lat": biz.lat, "lng": biz.lng,
             "distance_km": round(distance_km, 1) if distance_km is not None else None,
@@ -161,6 +164,9 @@ def public_business(request, code):
     if not biz.is_live:
         return Response({"name": biz.name, "paused": True})
     data = BusinessSerializer(biz).data
+    category = blueprints.BLUEPRINTS.get(biz.category, blueprints.BLUEPRINTS["other"])
+    data["category_label"] = category["label"]
+    data["category_label_hi"] = category["hi"]
     rating = Feedback.objects.filter(profile__business=biz).filter(
         Q(entry__status="approved") | Q(booking__status="completed")
     ).aggregate(average=Avg("rating"), count=Count("id"))

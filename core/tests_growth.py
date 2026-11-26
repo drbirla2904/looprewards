@@ -505,7 +505,24 @@ class WalletBlueprintBrandingTests(GrowthBase):
         b.refresh_from_db()
         self.assertEqual((b.services.count(), b.perk_rewards.count(), b.boosts.count()), (4, 2, 1))
         self.assertEqual(self.client.post(f"/api/b/{self.code}/blueprint/", {"key": "nope"}, format="json").status_code, 400)
-        self.assertEqual(len(self.client.get("/api/blueprints/").data), 8)
+        self.assertEqual(len(self.client.get("/api/blueprints/").data), 16)
+
+    def test_expanded_categories_are_available_and_labeled(self):
+        catalog = self.client.get("/api/blueprints/").data
+        by_key = {category["key"]: category for category in catalog}
+        self.assertEqual(len(catalog), 16)
+        self.assertEqual(by_key["agri_inputs"]["label"], "Seeds, fertilizer & pesticides")
+        self.assertEqual(by_key["medical_store"]["label"], "Medical store & pharmacy")
+        self.assertEqual(by_key["books_stationery"]["label"], "Books & stationery")
+
+        self.as_owner()
+        self.client.patch(f"/api/b/{self.code}/settings/", {"category": "medical_store"}, format="json")
+        public = self.client.get(f"/api/b/{self.code}/").data
+        self.assertEqual(public["category_label"], "Medical store & pharmacy")
+        self.assertEqual(public["category_label_hi"], "मेडिकल स्टोर और फ़ार्मेसी")
+        discovered = self.client.get("/api/shops/discover/").data["shops"]
+        shop = next(shop for shop in discovered if shop["shop_code"] == self.code)
+        self.assertEqual(shop["category_label"], "Medical store & pharmacy")
 
     def test_every_blueprint_is_valid(self):
         from . import blueprints

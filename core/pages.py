@@ -18,11 +18,19 @@ CATEGORY_THEMES = {
     "salon": {"label": "Salon & wellness", "hindi": "सैलून और वेलनेस", "accent": "#bd4f78", "soft": "#fcecf2"},
     "fitness": {"label": "Fitness & studios", "hindi": "फ़िटनेस और स्टूडियो", "accent": "#176a91", "soft": "#e9f4f9"},
     "services": {"label": "Repair, clinic & services", "hindi": "रिपेयर, क्लिनिक और सेवाएँ", "accent": "#3d5a80", "soft": "#e9eff6"},
+    "agri_inputs": {"label": "Seeds, fertilizer & pesticides", "hindi": "बीज, उर्वरक और कीटनाशक", "accent": "#487a38", "soft": "#edf5e9"},
+    "medical_store": {"label": "Medical store & pharmacy", "hindi": "मेडिकल स्टोर और फ़ार्मेसी", "accent": "#16817b", "soft": "#e8f6f3"},
+    "books_stationery": {"label": "Books & stationery", "hindi": "किताबें और स्टेशनरी", "accent": "#4166a1", "soft": "#ebf0fa"},
+    "electronics": {"label": "Electronics & appliances", "hindi": "इलेक्ट्रॉनिक्स और उपकरण", "accent": "#50617a", "soft": "#edf1f5"},
+    "hardware": {"label": "Hardware & building supplies", "hindi": "हार्डवेयर और निर्माण सामग्री", "accent": "#9a6332", "soft": "#f8f0e7"},
+    "automotive": {"label": "Automotive & spare parts", "hindi": "ऑटोमोबाइल और स्पेयर पार्ट्स", "accent": "#b34c37", "soft": "#faeee9"},
+    "pet_supplies": {"label": "Pet supplies", "hindi": "पालतू जानवरों की सामग्री", "accent": "#8a5c9e", "soft": "#f5eef8"},
+    "bakery_sweets": {"label": "Bakery & sweets", "hindi": "बेकरी और मिठाइयाँ", "accent": "#a75d37", "soft": "#faf0e8"},
     "other": {"label": "Shop & rewards", "hindi": "दुकान और इनाम", "accent": "#5e35b1", "soft": "#f0eafa"},
 }
 
 
-ASSET_VERSION = "2.4.29"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
+ASSET_VERSION = "2.4.30"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
 
 
 def shell(request, code=None):

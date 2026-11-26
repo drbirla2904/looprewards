@@ -133,6 +133,11 @@ class KitTests(VendorBase):
         r = self.client.post("/api/vendor/assist/", {"owner_name": "Z", "mobile": "9200000501", "name": "Odd", "category": "weird", "password": "secret1"}, format="json")
         self.assertEqual(r.status_code, 201)
         self.assertEqual(Business.objects.get(name="Odd").programs.count(), 1)  # unknown type falls back to "other"
+        r = self.client.post("/api/vendor/assist/", {"owner_name": "Ravi", "mobile": "9200000502", "name": "Green Fields", "category": "agri_inputs", "password": "secret1"}, format="json")
+        self.assertEqual(r.status_code, 201, r.data)
+        agricultural_shop = Business.objects.get(name="Green Fields")
+        self.assertEqual(agricultural_shop.category, "agri_inputs")
+        self.assertEqual(agricultural_shop.programs.count(), 1)
 
 
 class PayoutTdsTests(VendorBase):

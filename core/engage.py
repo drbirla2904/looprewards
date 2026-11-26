@@ -315,6 +315,8 @@ def shop_state(profile):
 
 
 def wallet(user):
+    from .blueprints import BLUEPRINTS
+
     shops, total_rewards, total_visits = [], 0, 0
     profiles = list(user.profiles.filter(hidden_from_customer=False).select_related("business"))
     ratings = Feedback.objects.filter(
@@ -329,10 +331,12 @@ def wallet(user):
             continue
         st = shop_state(p)
         rating = rating_by_business.get(biz.id)
+        category = BLUEPRINTS.get(biz.category, BLUEPRINTS["other"])
         upcoming = Booking.objects.filter(profile=p, status__in=("requested", "confirmed"),
                                           starts_at__gte=timezone.now()).select_related("service").order_by("starts_at").first()
         shops.append({
-            "shop": biz.name, "shop_code": biz.shop_code, "category": biz.category, "brand_color": biz.brand_color,
+            "shop": biz.name, "shop_code": biz.shop_code, "category": biz.category,
+            "category_label": category["label"], "category_label_hi": category["hi"], "brand_color": biz.brand_color,
             "rating_average": round(float(rating["average"]), 1) if rating else None,
             "rating_count": rating["count"] if rating else 0,
             "logo_url": biz.logo.url if biz.logo else "", "live": biz.is_live,

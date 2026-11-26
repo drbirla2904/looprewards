@@ -12,9 +12,11 @@
         h('button.btn.lg', { onclick: e => busy(e.target, async () => { try { const r = await api('vendor/apply/', 'POST', { pan: pan.value, upi_id: upi.value }); toast(t(r.detail)); FX.render(); } catch (x) { err.textContent = x.message; } }) }, t('Apply'))));
   }
 
-  function assistModal(onDone) {
+  async function assistModal(onDone) {
+    let categories;
+    try { categories = await api('blueprints/'); } catch (e) { toast(e.message, true); return; }
     const f = { owner_name: inp({ maxlength: 150 }), mobile: inp({ type: 'tel', inputmode: 'numeric', maxlength: 15 }), name: inp({ maxlength: 120 }), address: inp(), pay_upi_id: inp({ ph: 'optional' }) };
-    const cat = sel([['cafe', 'Cafe'], ['restaurant', 'Restaurant'], ['grocery', 'Grocery'], ['retail', 'Retail'], ['salon', 'Salon'], ['fitness', 'Fitness'], ['services', 'Services'], ['other', 'Other']], 'other');
+    const cat = sel(categories.map(x => [x.key, FX.lang === 'hi' ? x.hi : x.label]), 'other');
     /* the owner logs in with mobile + this password, so the partner sets it here (and tells the owner) */
     const pw = inp({ type: 'password', autocomplete: 'new-password', minlength: 6, maxlength: 64, ph: 'At least 6 characters' });
     const eye = h('button.btn.ghost.sm', { type: 'button', 'aria-label': t('Show password'), onclick: () => { pw.type = pw.type === 'password' ? 'text' : 'password'; eye.textContent = pw.type === 'password' ? t('Show') : t('Hide'); } }, t('Show'));
