@@ -127,9 +127,8 @@
             }
           }
         });
-        checkout.on('payment.failed', response => {
-          error.textContent = response.error?.description || t('Payment failed. Please try again.');
-        });
+        checkout.on('payment.failed', response => toast(response.error?.description || t('Payment failed. Please try again.'), true));
+        dialog.close();
         checkout.open();
       }) }, t('Continue to payment'));
       dialog = modal(t('Support OFFLet'), h('div.stack',

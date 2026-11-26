@@ -505,7 +505,46 @@ class WalletBlueprintBrandingTests(GrowthBase):
         b.refresh_from_db()
         self.assertEqual((b.services.count(), b.perk_rewards.count(), b.boosts.count()), (4, 2, 1))
         self.assertEqual(self.client.post(f"/api/b/{self.code}/blueprint/", {"key": "nope"}, format="json").status_code, 400)
-        self.assertEqual(len(self.client.get("/api/blueprints/").data), 16)
+        catalog = self.client.get("/api/blueprints/").data
+        self.assertEqual(len(catalog), 16)
+        cafe = next(category for category in catalog if category["key"] == "cafe")
+        self.assertEqual((cafe["setup"]["program"], cafe["setup"]["tasks"][0]["rewards"][0]["title"]),
+                         ("Coffee Club", "Free coffee"))
+
+    def test_registration_accepts_edited_and_removed_starter_defaults(self):
+        self.as_owner()
+        setup = {
+            "program": "My Club",
+            "tasks": [{
+                "title": "Buy 3 teas", "type": "count", "target": 3, "item_name": "tea",
+                "repeatable": True, "max_per_customer": 0,
+                "rewards": [{"title": "Free tea", "type": "free_item", "value": 0, "expiry_days": 14, "terms": "Dine-in"}],
+            }],
+            "boosts": [{"title": "Weekend boost", "multiplier": 3, "weekdays": "5,6"}],
+            "welcome": {"title": "Welcome chai", "type": "gift", "value": 0, "expiry_days": 7},
+            "referral": None,
+        }
+        response = self.client.post("/api/businesses/", {
+            "name": "Custom setup", "category": "cafe", "setup": setup,
+        }, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        biz = Business.objects.get(shop_code=response.data["shop_code"])
+        program = biz.programs.get()
+        task = program.tasks.get()
+        self.assertEqual((program.title, task.title, task.target, task.item_name), ("My Club", "Buy 3 teas", Decimal("3"), "tea"))
+        self.assertEqual((task.rewards.get().title, task.rewards.get().expiry_days, task.rewards.get().terms), ("Free tea", 14, "Dine-in"))
+        self.assertEqual((biz.boosts.get().title, biz.boosts.get().multiplier), ("Weekend boost", 3))
+        self.assertEqual((biz.perk_rewards.get().trigger, biz.perk_rewards.get().title), ("welcome", "Welcome chai"))
+        self.assertFalse(biz.perk_rewards.filter(trigger="referral").exists())
+
+    def test_invalid_registration_setup_rolls_back_business_creation(self):
+        self.as_owner()
+        response = self.client.post("/api/businesses/", {
+            "name": "Invalid setup", "category": "cafe",
+            "setup": {"tasks": [{"title": "Broken", "type": "invalid", "target": 1, "rewards": []}]},
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Business.objects.filter(name="Invalid setup").exists())
 
     def test_expanded_categories_are_available_and_labeled(self):
         catalog = self.client.get("/api/blueprints/").data

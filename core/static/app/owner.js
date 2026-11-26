@@ -27,32 +27,148 @@
       }
     }) }, t('Detect shop location'));
     const box = h('div.stack.l', { style: 'max-width:720px;margin:0 auto' });
+    let draft = null;
+    const rewardTypes = [['free_item', 'Free item'], ['percent_off', 'Percent off'], ['flat_off', 'Flat amount off'], ['gift', 'Gift'], ['cashback', 'Cashback'], ['special_offer', 'Special offer'], ['custom', 'Other']];
+    const taskTypes = [['visit', 'Number of visits'], ['count', 'Number of items'], ['amount', 'Total spend (₹)']];
+    const editReward = (label, current, save) => {
+      const title = inp({ value: current ? current.title : '', maxlength: 120, ph: 'Reward name' });
+      const type = sel(rewardTypes, current ? current.type : 'gift');
+      const value = inp({ type: 'number', min: '0', value: current ? current.value : 0 });
+      const days = inp({ type: 'number', min: '1', max: '365', value: current ? current.expiry_days : 30 });
+      const terms = h('textarea', { maxlength: 500, placeholder: t('Optional reward terms') });
+      terms.value = current ? current.terms || '' : '';
+      let m;
+      m = modal(t(label), h('div.stack', field('Reward', title), h('div.g2', field('Type', type), field('Value (₹ or %)', value)),
+        field('Valid for (days)', days), field('Terms', terms),
+        h('button.btn', { onclick: e => busy(e.target, async () => {
+          if (!title.value.trim()) return toast(t('Enter a reward name.'), true);
+          save({ title: title.value.trim(), type: type.value, value: value.value || 0, expiry_days: +days.value || 30, terms: terms.value });
+          m.close(); draw();
+        }) }, t('Save'))));
+    };
+    const editTask = index => {
+      const current = draft.tasks[index], reward = current.rewards[0] || null;
+      const title = inp({ value: current.title, maxlength: 120 });
+      const type = sel(taskTypes, current.type);
+      const target = inp({ type: 'number', min: '1', value: current.target });
+      const item = inp({ value: current.item_name || '', maxlength: 80, ph: 'Item name (optional)' });
+      const rewardTitle = inp({ value: reward ? reward.title : '', maxlength: 120, ph: 'Reward name' });
+      const rewardType = sel(rewardTypes, reward ? reward.type : 'gift');
+      const rewardValue = inp({ type: 'number', min: '0', value: reward ? reward.value : 0 });
+      const days = inp({ type: 'number', min: '1', max: '365', value: reward ? reward.expiry_days : 30 });
+      const terms = h('textarea', { maxlength: 500, placeholder: t('Optional reward terms') });
+      terms.value = reward ? reward.terms || '' : '';
+      let m;
+      m = modal(t('Edit default reward'), h('div.stack',
+        field('Task name', title), h('div.g2', field('Earn by', type), field('Target', target)), field('Item name', item),
+        h('div.card.stack', h('b', t('What customers get')), field('Reward', rewardTitle),
+          h('div.g2', field('Type', rewardType), field('Value (₹ or %)', rewardValue)), field('Valid for (days)', days), field('Terms', terms)),
+        h('button.btn.lg', { onclick: e => busy(e.target, async () => {
+          if (!title.value.trim() || !rewardTitle.value.trim() || !target.value || +target.value < 1) return toast(t('Enter a task, target and reward name.'), true);
+          draft.tasks[index] = { ...current, title: title.value.trim(), type: type.value, target: +target.value,
+            item_name: item.value.trim(), rewards: [{ title: rewardTitle.value.trim(), type: rewardType.value,
+              value: rewardValue.value || 0, expiry_days: +days.value || 30, terms: terms.value }] };
+          m.close(); draw();
+        }) }, t('Save'))));
+    };
+    const editBoost = index => {
+      const current = draft.boosts[index];
+      const title = inp({ value: current.title, maxlength: 80 });
+      const multiplier = sel([[2, '2x'], [3, '3x'], [4, '4x'], [5, '5x']], current.multiplier);
+      const weekdays = inp({ value: current.weekdays || '', ph: '0,1,2 (Mon=0, Sun=6)' });
+      const start = inp({ type: 'time', value: current.start_time || '' });
+      const end = inp({ type: 'time', value: current.end_time || '' });
+      let m;
+      m = modal(t('Edit default boost'), h('div.stack',
+        field('Name', title), field('Multiplier', multiplier), field('Days (0=Mon, 6=Sun; empty=every day)', weekdays),
+        h('div.g2', field('From', start), field('Until', end)),
+        h('button.btn.lg', { onclick: e => busy(e.target, async () => {
+          if (!title.value.trim()) return toast(t('Enter a boost name.'), true);
+          draft.boosts[index] = { ...current, title: title.value.trim(), multiplier: +multiplier.value,
+            weekdays: weekdays.value.trim(), start_time: start.value || null, end_time: end.value || null };
+          m.close(); draw();
+        }) }, t('Save'))));
+    };
+    const editProgram = () => {
+      const title = inp({ value: draft.program, maxlength: 120 });
+      let m;
+      m = modal(t('Edit program'), h('div.stack', field('Program name', title),
+        h('button.btn', { onclick: e => busy(e.target, async () => {
+          if (!title.value.trim()) return toast(t('Enter a program name.'), true);
+          draft.program = title.value.trim(); m.close(); draw();
+        }) }, t('Save'))));
+    };
+    const taskRow = (task, index) => h('div.li',
+      h('span', task.type === 'amount' ? '₹' : '✦'),
+      h('div.grow', h('b', task.title), h('div.small.muted', '🎁 ' + (task.rewards[0] ? task.rewards[0].title : t('No reward')))),
+      h('div.row.wrap',
+        h('button.btn.ghost.sm', { onclick: () => editTask(index) }, t('Edit')),
+        h('button.btn.danger.sm', { onclick: async () => {
+          if (await confirmBox(t('Remove this starter reward?'), t('Delete'), true)) { draft.tasks.splice(index, 1); draw(); }
+        } }, t('Delete'))));
+    const boostRow = (boost, index) => h('div.li',
+      h('span', '⚡'),
+      h('div.grow', h('b', boost.title + ' (' + boost.multiplier + 'x)'), h('div.small.muted', t('Fills your quiet hours'))),
+      h('div.row.wrap',
+        h('button.btn.ghost.sm', { onclick: () => editBoost(index) }, t('Edit')),
+        h('button.btn.danger.sm', { onclick: async () => {
+          if (await confirmBox(t('Remove this starter boost?'), t('Delete'), true)) { draft.boosts.splice(index, 1); draw(); }
+        } }, t('Delete'))));
+    const perkRow = (trigger, label, icon) => {
+      const current = draft[trigger];
+      return h('div.li',
+        h('span', icon),
+        h('div.grow', h('b', t(label)), h('div.small.muted', current ? current.title : t('Not included'))),
+        h('div.row.wrap',
+          h('button.btn.ghost.sm', { onclick: () => editReward(label, current, value => { draft[trigger] = value; }) }, t(current ? 'Edit' : 'Add')),
+          current ? h('button.btn.danger.sm', { onclick: async () => {
+            if (await confirmBox(t('Remove this starter reward?'), t('Delete'), true)) { draft[trigger] = null; draw(); }
+          } }, t('Delete')) : null));
+    };
     const draw = () => {
       const bp = types.find(x => x.key === pick), err = h('div.err');
-      box.replaceChildren(h('div.steps', [1, 2].map(i => h('i' + (i <= step ? '.on' : '')))),
-        step === 1 ? h('div.stack.l', h('div', h('h1', t('Set up your rewards in a minute')), h('p.muted', t('Tell us about your business. We create a ready-made program you can edit later.'))),
+      if (step === 2 && (!draft || draft.key !== pick)) draft = { ...JSON.parse(JSON.stringify(bp.setup)), key: pick };
+      const progress = h('div.steps', [1, 2].map(i => h('i' + (i <= step ? '.on' : ''))));
+      let content;
+      if (step === 1) {
+        content = h('div.stack.l',
+          h('div', h('h1', t('Set up your rewards in a minute')), h('p.muted', t('Tell us about your business. We create a ready-made program you can edit before launch.'))),
           h('div.card.stack', field('Business name', name), field('UPI ID', upi, 'Customers can pay you directly.'), field('Address', addr),
             h('div.row.wrap', detectLocation), locationStatus),
-          h('div.stack', h('h3', t('What kind of business is it?')), h('div.g2', { role: 'radiogroup' }, types.map(x => h('button.blueprint', { role: 'radio', 'aria-checked': String(x.key === pick), onclick: () => { pick = x.key; draw(); } },
-            h('span.em', x.emoji), h('b', FX.lang === 'hi' ? x.hi : x.label), h('small.muted', x.tasks.map(k => k.reward).join(', ')))))),
-          err, h('button.btn.lg', { onclick: () => { if (!name.value.trim()) { err.textContent = t('Enter your business name.'); return; } step = 2; draw(); } }, t('Next'))) :
-          h('div.stack.l', h('div', h('h1', t('Here is what you get')), h('p.muted', t('Everything is editable after launch.'))),
-            h('div.card.stack', h('h3', bp.program), bp.tasks.map(k => h('div.li', h('span', k.type === 'amount' ? '₹' : '✦'), h('div.grow', h('b', k.title), h('div.small.muted', '🎁 ' + k.reward)))),
-              bp.boosts.length ? h('div.li', h('span', '⚡'), h('div.grow', h('b', bp.boosts[0]), h('div.small.muted', t('Fills your quiet hours')))) : null,
-              bp.services.length ? h('div.li', h('span', '📅'), h('div.grow', h('b', t('Online booking')), h('div.small.muted', bp.services.join(', ')))) : null,
-              h('div.li', h('span', '🎁'), h('div.grow', h('b', t('Welcome gift')), h('div.small.muted', bp.welcome))),
-              h('div.li', h('span', '🤝'), h('div.grow', h('b', t('Friend referral reward')), h('div.small.muted', bp.referral)))),
-            err, h('div.row', h('button.btn.ghost', { onclick: () => { step = 1; draw(); } }, t('Back')),
-              h('button.btn.lg.grow', { onclick: e => busy(e.target, async () => {
-                try {
-                  const business = { name: name.value.trim(), category: pick, pay_upi_id: upi.value.trim() || undefined, address: addr.value.trim(), language: FX.lang };
-                  if (shopLocation) { business.lat = shopLocation.lat; business.lng = shopLocation.lng; }
-                  const b = await api('businesses/', 'POST', business);
-                  await api('b/' + b.shop_code + '/blueprint/', 'POST', { key: pick });
-                  localStorage.fx_biz = b.shop_code; await FX.reloadShops(); await FX.loadSub().catch(() => {});
-                  toast(t('Your program is live! Print your QR code next.')); FX.go('shop');
-                } catch (x) { err.textContent = x.message; }
-              }) }, t('Launch my rewards')))));
+          h('div.stack', h('h3', t('What kind of business is it?')),
+            h('div.g2', { role: 'radiogroup' }, types.map(x => h('button.blueprint', {
+              role: 'radio', 'aria-checked': String(x.key === pick), onclick: () => { pick = x.key; draw(); }
+            }, h('span.em', x.emoji), h('b', FX.lang === 'hi' ? x.hi : x.label), h('small.muted', x.tasks.map(k => k.reward).join(', ')))))),
+          err, h('button.btn.lg', { onclick: () => {
+            if (!name.value.trim()) { err.textContent = t('Enter your business name.'); return; }
+            step = 2; draw();
+          } }, t('Next')));
+      } else {
+        const setupCard = h('div.card.stack',
+          h('div.row.between.wrap', h('h3', draft.program), h('button.btn.ghost.sm', { onclick: editProgram }, t('Edit'))),
+          draft.tasks.length ? h('div.stack.s', draft.tasks.map(taskRow)) : empty('No starter rewards', 'You can launch without a starter reward.'),
+          draft.boosts.length ? h('div.stack.s', h('b', t('Boosts')), draft.boosts.map(boostRow)) : null,
+          bp.services.length ? h('div.li', h('span', '📅'), h('div.grow', h('b', t('Online booking')), h('div.small.muted', bp.services.join(', ')))) : null,
+          perkRow('welcome', 'Welcome gift', '🎁'),
+          perkRow('referral', 'Friend referral reward', '🤝'));
+        const launch = h('button.btn.lg.grow', { onclick: e => busy(e.target, async () => {
+          try {
+            const setup = { ...draft };
+            delete setup.key;
+            const business = { name: name.value.trim(), category: pick, pay_upi_id: upi.value.trim() || undefined,
+              address: addr.value.trim(), language: FX.lang, setup };
+            if (shopLocation) { business.lat = shopLocation.lat; business.lng = shopLocation.lng; }
+            const b = await api('businesses/', 'POST', business);
+            localStorage.fx_biz = b.shop_code; await FX.reloadShops(); await FX.loadSub().catch(() => {});
+            toast(t('Your program is live! Print your QR code next.')); FX.go('shop');
+          } catch (x) { err.textContent = x.message; }
+        }) }, t('Launch my rewards'));
+        content = h('div.stack.l',
+          h('div', h('h1', t('Here is what you get')), h('p.muted', t('Edit or remove any starter reward before launching.'))),
+          setupCard, err,
+          h('div.row', h('button.btn.ghost', { onclick: () => { step = 1; draw(); } }, t('Back')), launch));
+      }
+      box.replaceChildren(progress, content);
     };
     draw();
     return box;

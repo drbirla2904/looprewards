@@ -60,6 +60,7 @@ def register(request):
 
 
 @api_view(["POST"])
+@transaction.atomic
 def create_business(request):
     _owner_only(request.user)
     upi = request.data.get("pay_upi_id")
@@ -67,7 +68,11 @@ def create_business(request):
         raise ValidationError("This UPI ID is already registered.")
     s = BusinessSerializer(data=request.data)
     s.is_valid(raise_exception=True)
-    return Response(BusinessSerializer(s.save(owner=request.user)).data, status=201)
+    biz = s.save(owner=request.user)
+    if "setup" in request.data:
+        key = biz.category if biz.category in blueprints.BLUEPRINTS else "other"
+        blueprints.apply(biz, key, request.data["setup"])
+    return Response(BusinessSerializer(biz).data, status=201)
 
 
 @api_view(["POST"])

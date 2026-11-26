@@ -373,6 +373,26 @@ class BillingTest(APITestCase):
         self.assertTrue(incomplete.data["autopay"])  # missing plan ids no longer hide AutoPay: plans are created on demand
         self.assertEqual(incomplete.data["payment_methods"]["online"], True)
 
+    def test_active_yearly_plan_blocks_monthly_plan_changes(self):
+        owner = User.objects.create_user("9999999943", "secret1", role="owner")
+        subscription = get_sub(owner)
+        subscription.paid_until = timezone.now() + _td(days=100)
+        subscription.save(update_fields=["paid_until"])
+        Payment.objects.create(owner=owner, plan="yearly", amount=99900, method="gateway", status="paid")
+        self.client.force_authenticate(user=owner)
+
+        with override_settings(RAZORPAY_KEY_ID="rzp_test_demo", RAZORPAY_KEY_SECRET="test-secret",
+                               PLATFORM_UPI_ID="platform@upi"):
+            with patch("core.billing._rzp_post") as gateway:
+                status = self.client.get("/api/billing/")
+                order = self.client.post("/api/billing/order/", {"plan": "monthly"}, format="json")
+                autopay = self.client.post("/api/billing/autopay/", {"plan": "monthly"}, format="json")
+                upi = self.client.post("/api/billing/upi/", {"plan": "monthly", "utr": "UPI123456"}, format="multipart")
+
+        self.assertEqual(status.data["active_plan"], "yearly")
+        self.assertEqual((order.status_code, autopay.status_code, upi.status_code), (400, 400, 400))
+        gateway.assert_not_called()
+
     def test_one_time_razorpay_order_activates_with_valid_signature(self):
         owner = User.objects.create_user("9999999932", "secret1", role="owner")
         self.client.force_authenticate(user=owner)

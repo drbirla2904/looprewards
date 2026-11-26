@@ -403,24 +403,18 @@
     const FEATURES = ['Unlimited customers and rewards', 'Counter code and instant approvals', 'Offers, boosts and bookings', 'Insights, CSV export and print kit', 'Hindi and English for your customers'];
     const planCard = k => {
       const p = plan(k), best = k === 'yearly', per = best ? p.amount / 100 / 12 : null;
+      const lowerPlanBlocked = k === 'monthly' && s.active_plan === 'yearly';
       return h('div.plan' + (best ? '.best' : ''), best && saving ? h('span.ribbon', t('Save {a}', { a: FX.rupee(saving / 100) })) : null,
         h('div', h('h3', t(p.label)), h('div.price', FX.rupee(p.amount / 100), h('small', ' / ' + t(best ? 'year' : 'month')))),
         h('small.muted', best ? t('Just {a} a month. Includes GST.', { a: FX.rupee(Math.round(per)) }) : t('Includes GST. {n} days.', { n: p.days })),
+        lowerPlanBlocked ? h('p.small.muted', t('Your active yearly plan cannot be changed to monthly before it ends.')) : null,
         h('ul', FEATURES.map(f => h('li', t(f)))),
-        methods.online ? h('button.btn.lg' + (best ? '.gold' : ''), { onclick: checkout(k) }, t('Pay securely with Razorpay')) : null,
-        methods.upi ? h('button.btn' + (!methods.online && best ? '.gold' : '.ghost'), { onclick: () => payUpi(k) },
+        methods.online ? h('button.btn.lg' + (best ? '.gold' : ''), { disabled: lowerPlanBlocked, onclick: checkout(k) }, t('Pay securely with Razorpay')) : null,
+        methods.upi ? h('button.btn' + (!methods.online && best ? '.gold' : '.ghost'), { disabled: lowerPlanBlocked, onclick: () => payUpi(k) },
           t(methods.online ? 'Pay by UPI and upload screenshot' : 'Pay by UPI and upload screenshot for approval')) : null,
-        s.autopay && !s.autorenew && !s.autopay_pending ? h('button.btn.ghost', { onclick: subscribe(k) }, t('Enable AutoPay')) : null,
+        s.autopay && !s.autorenew && !s.autopay_pending ? h('button.btn.ghost', { disabled: lowerPlanBlocked, onclick: subscribe(k) }, t('Enable AutoPay')) : null,
         !methods.online && !methods.upi ? h('p.small.muted', t('Online payments are not set up yet. Please contact support.')) : null);
     };
-    /* AutoPay first: set it up once, never think about renewals again. No charge before the current period ends. */
-    const firstCharge = s.state === 'trial' ? t('Nothing is charged until your free trial ends on {d}.', { d: FX.fmtDate(s.ends) })
-      : s.state === 'active' ? t('The first AutoPay charge is on {d}, when your current plan ends.', { d: FX.fmtDate(s.ends) }) : t('Your first AutoPay charge is today.');
-    const autoCard = s.autopay && !s.autorenew && !s.autopay_pending ? h('div.card.stack', { style: 'border:2px solid var(--brand)' },
-      h('div.row.between.wrap', h('div', h('h3', '⚡ ' + t('Never miss a renewal')), h('p.muted.small', t('Set up AutoPay once with UPI or a card. Cancel any time from this screen.'))), pill(t('Recommended'), 'ok')),
-      h('p.small', firstCharge),
-      h('div.g2', Object.keys(s.plans).map(k => { const p = plan(k), best = k === 'yearly';
-        return h('button.btn' + (best ? '.gold' : '') + '.lg', { onclick: subscribe(k) }, t(p.label) + ' · ' + FX.rupee(p.amount / 100) + ' / ' + t(best ? 'year' : 'month') + (best && saving ? ' · ' + t('Save {a}', { a: FX.rupee(saving / 100) }) : '')); }))) : null;
     const METHOD = { gateway: 'Razorpay', upi: 'UPI' }, STAT = { paid: ['Paid', 'ok'], pending: ['Verifying', 'warn'], rejected: ['Not verified', 'bad'], refunded: ['Refunded', ''] };
     return h('div.stack.l', { style: 'max-width:860px' }, h('h1', t('Billing')),
       h('div.state-card' + (live ? (s.state === 'trial' ? '.trial' : '') : '.bad'),
@@ -428,7 +422,6 @@
         s.state === 'trial' ? h('div.meter', h('i', { style: { width: pct + '%' } })) : null),
       pendingBox, rejectedBox,
       s.payment_mode === 'test' ? h('p.card.small.muted', t('Razorpay test mode: payments are simulated and will not charge a real account.')) : null,
-      autoCard,
       h('div.plans', Object.keys(s.plans).map(planCard)),
       s.autopay_pending ? h('p.small.muted', t('AutoPay setup is waiting for your approval in your UPI or card app.')) : null,
       s.autorenew || s.autopay_pending ? h('button.btn.danger', { style: 'justify-self:start', onclick: async () => { if (await confirmBox(t('Turn off AutoPay? Your plan stays active until it ends.'), t('Turn off'), true)) { await api('billing/autopay/cancel/', 'POST'); toast(t('AutoPay turned off')); FX.render(); } } }, t('Turn off AutoPay')) : null,

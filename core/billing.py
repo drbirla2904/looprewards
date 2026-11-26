@@ -87,6 +87,18 @@ def _plan(name):
     return settings.PLANS[name]
 
 
+def _active_plan(sub):
+    if not sub.paid_until or sub.paid_until <= timezone.now():
+        return None
+    payment = Payment.objects.filter(owner=sub.owner, status="paid").order_by("-created_at", "-id").first()
+    return payment.plan if payment else None
+
+
+def _check_plan_change(sub, plan):
+    if plan == "monthly" and _active_plan(sub) == "yearly":
+        raise ValidationError("Your yearly plan is active. You can choose a monthly plan after it ends.")
+
+
 def upi_link(plan, owner_id):
     if not settings.PLATFORM_UPI_ID:
         raise ValidationError("Manual UPI payments are not configured.")
@@ -109,6 +121,7 @@ def status(request):
     s = get_sub(request.user)
     now = timezone.now()
     end = s.paid_until or s.trial_ends
+    active_plan = _active_plan(s)
     grace_ends = end + timedelta(days=settings.GRACE_DAYS)
     data_until = grace_ends + timedelta(days=30 * settings.RETENTION_MONTHS)
     pending = request.user.payments.filter(method="upi", status="pending").order_by("-created_at").values(
@@ -128,6 +141,7 @@ def status(request):
         "grace_days": settings.GRACE_DAYS, "retention_months": settings.RETENTION_MONTHS,
         "plans": settings.PLANS, "payment_methods": {
             "online": gateway_available, "upi": bool(settings.PLATFORM_UPI_ID)},
+        "active_plan": active_plan,
         "upi_links": {plan: upi_link(plan, request.user.pk) for plan in settings.PLANS}
                     if settings.PLATFORM_UPI_ID else {},
         "payment_mode": payment_mode,
@@ -160,6 +174,7 @@ def create_order(request):
         raise PermissionDenied("Owner account required.")
     plan = request.data.get("plan")
     selected_plan = _plan(plan)
+    _check_plan_change(get_sub(request.user), plan)
     if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
         raise ValidationError("Razorpay checkout is not configured.")
     order = _rzp_post("orders", {"amount": selected_plan["amount"], "currency": "INR",
@@ -312,6 +327,7 @@ def upi_submit(request):
         raise ValidationError("Manual UPI payments are not configured.")
     plan = request.data.get("plan")
     selected_plan = _plan(plan)
+    _check_plan_change(get_sub(request.user), plan)
     utr = str(request.data.get("utr", "")).strip()
     proof = request.FILES.get("proof")
     if not utr or len(utr) > 20:
@@ -412,6 +428,7 @@ def autopay(request):
         raise PermissionDenied("Owner account required.")
     plan = request.data.get("plan")
     _plan(plan)
+    _check_plan_change(get_sub(request.user), plan)
     if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
         raise ValidationError("Auto-renew is not configured.")
     pid = plan_id(plan)
