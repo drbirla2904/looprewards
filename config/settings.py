@@ -118,5 +118,5 @@ RETENTION_MONTHS = int(env("RETENTION_MONTHS", "12"))  # shop data kept this lon
 _support = env("SUPPORT_EMAIL", "support@" + env("DOMAIN", "yourdomain.com"))
 COMPANY = {"name": SELLER["name"], "address": SELLER["address"], "email": _support, "phone": env("SUPPORT_PHONE", ""),
            "grievance_name": env("GRIEVANCE_NAME", "Grievance Officer"), "grievance_email": env("GRIEVANCE_EMAIL", _support),
-           "city": env("JURISDICTION", "Mumbai, Maharashtra"), "updated": env("LEGAL_UPDATED", "1 January 2027"),
+           "city": env("JURISDICTION", "Mumbai, Maharashtra"), "updated": env("LEGAL_UPDATED", "26 November 2026"),
            "hosting": env("HOSTING_REGION", "India / Europe (Contabo data centre)")}
