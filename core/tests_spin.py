@@ -181,7 +181,7 @@ class SpinWinTests(APITestCase):
         self.assertEqual(SpinRecord.objects.filter(profile=self.profile).count(), 1)
 
         self._as(self.owner_token)
-        redeem = self.client.post("/api/rewards/redeem/", {"code": grant.code}, format="json")
+        redeem = self.client.post("/api/rewards/redeem/", {"code": grant.code, "shop_code": self.business.shop_code}, format="json")
         self.assertEqual(redeem.status_code, 200, redeem.data)
         wheel_stats = self.client.get(f"/api/b/{self.business.shop_code}/spin-wheels/").data[0]["analytics"]
         self.assertEqual(wheel_stats["spins"], 1)

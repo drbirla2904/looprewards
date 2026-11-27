@@ -194,6 +194,23 @@ class RewardGrant(models.Model):
     expires_at = models.DateTimeField()
 
 
+class RewardRedemptionRequest(models.Model):
+    STATUSES = [("pending", "Pending"), ("approved", "Approved"), ("declined", "Declined"), ("cancelled", "Cancelled")]
+    grant = models.ForeignKey(RewardGrant, on_delete=models.CASCADE, related_name="redemption_requests")
+    status = models.CharField(max_length=10, choices=STATUSES, default="pending")
+    requested_at = models.DateTimeField(default=timezone.now)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="reviewed_reward_redemption_requests")
+
+    class Meta:
+        ordering = ("-requested_at", "-id")
+        constraints = [
+            models.UniqueConstraint(fields=("grant",), condition=models.Q(status="pending"),
+                                    name="one_pending_redemption_per_grant"),
+        ]
+
+
 class SocialFollowClaim(models.Model):
     profile = models.OneToOneField(CustomerProfile, on_delete=models.CASCADE, related_name="social_follow_claim")
     status = models.CharField(max_length=10, default="pending", choices=[

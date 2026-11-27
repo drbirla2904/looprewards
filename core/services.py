@@ -7,7 +7,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from . import counter, engage
 from .notify import push
-from .models import (AuditLog, Booking, CodeUse, PurchaseEntry, RewardGrant, Task, TaskProgress, can_manage)
+from .models import (AuditLog, Booking, CodeUse, PurchaseEntry, RewardGrant, RewardRedemptionRequest,
+                     Task, TaskProgress, can_manage)
 
 
 def _log(business, actor, action, ref=""):
@@ -123,15 +124,26 @@ def _apply_progress(entry):
                            f"{profile.business.name} unlocks: {first.title}.", link=f"/b/{profile.business.shop_code}/?tab=earn")
 
 
-@transaction.atomic
-def redeem(code, actor):
+def _grant_for_shop(code, shop_code, actor, *, lock=False):
+    grants = RewardGrant.objects.select_related("profile__business", "profile__user", "reward")
+    if lock:
+        grants = grants.select_for_update()
     try:
-        g = RewardGrant.objects.select_for_update().select_related("profile__business").get(code=code.upper())
+        g = grants.get(code=str(code).strip().upper())
     except RewardGrant.DoesNotExist:
         raise ValidationError("Invalid code.")
     biz = g.profile.business
     if not can_manage(actor, biz):
-        raise PermissionDenied()
+        raise ValidationError("Invalid code.")
+    if not shop_code or str(shop_code).strip() != biz.shop_code:
+        raise ValidationError("Invalid code.")
+    return g
+
+
+@transaction.atomic
+def redeem(code, shop_code, actor):
+    g = _grant_for_shop(code, shop_code, actor, lock=True)
+    biz = g.profile.business
     if g.status != "active":
         raise ValidationError(f"Reward already {g.status}.")
     if g.expires_at < timezone.now():
@@ -139,6 +151,9 @@ def redeem(code, actor):
         raise ValidationError("Reward expired.")
     g.status, g.redeemed_at = "used", timezone.now()
     g.save()
+    RewardRedemptionRequest.objects.filter(grant=g, status="pending").update(
+        status="cancelled", reviewed_at=g.redeemed_at, reviewed_by=actor,
+    )
     _log(biz, actor, "redeemed", g.code)
     return g
 
@@ -225,15 +240,10 @@ def complete_booking(booking, actor):
     return booking
 
 
-def lookup_grant(code, actor):
+def lookup_grant(code, shop_code, actor):
     """Read-only preview for the redeem screen, so staff confirm the right customer and reward before tapping Redeem."""
-    try:
-        g = RewardGrant.objects.select_related("profile__business", "profile__user", "reward").get(code=str(code).strip().upper())
-    except RewardGrant.DoesNotExist:
-        raise ValidationError("Invalid code.")
+    g = _grant_for_shop(code, shop_code, actor)
     biz = g.profile.business
-    if not can_manage(actor, biz):
-        raise ValidationError("Invalid code.")  # same answer as unknown, so codes of other shops are not revealed
     expired = g.status == "active" and g.expires_at < timezone.now()
     status = "expired" if expired else g.status
     return {"code": g.code, "reward": g.reward.title, "terms": g.reward.terms, "status": status,

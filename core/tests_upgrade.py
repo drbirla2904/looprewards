@@ -9,7 +9,7 @@ from PIL import Image
 from rest_framework.test import APITestCase
 
 from .billing import mark_paid, revoke_period
-from .models import CustomerProfile, Notification, Payment, RewardGrant, Subscription, User, get_sub
+from .models import Business, CustomerProfile, Notification, Payment, RewardGrant, Subscription, User, get_sub
 from .tests_growth import GrowthBase
 
 
@@ -118,24 +118,95 @@ class RewardClickTests(GrowthBase):
             self.buy(cust_tok)
         return RewardGrant.objects.filter(reward__task=self.visit_task).first()
 
-    def test_lookup_previews_then_redeem_works_and_other_shop_cannot_peek(self):
+    def test_reward_code_must_match_selected_shop_for_lookup_and_redemption(self):
         cust = self.customer("9100000020")
         g = self.grant(cust)
+        another_shop = Business.objects.create(owner=User.objects.get(username="9100000001"), name="Another Chai Shop")
         self.as_owner()
-        r = self.client.post("/api/rewards/lookup/", {"code": g.code.lower()})
+        self.assertEqual(self.client.post("/api/rewards/lookup/", {"code": g.code}).status_code, 400)
+        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": g.code}).status_code, 400)
+        wrong_shop = {"code": g.code.lower(), "shop_code": another_shop.shop_code}
+        self.assertEqual(self.client.post("/api/rewards/lookup/", wrong_shop).status_code, 400)
+        self.assertEqual(self.client.post("/api/rewards/redeem/", wrong_shop).status_code, 400)
+        g.refresh_from_db()
+        self.assertEqual(g.status, "active")
+
+        payload = {"code": g.code.lower(), "shop_code": self.code}
+        r = self.client.post("/api/rewards/lookup/", payload)
         self.assertEqual(r.status_code, 200, r.data)
         self.assertEqual((r.data["reward"], r.data["redeemable"], r.data["shop"]), ("Free chai", True, "Chai Point"))
-        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": g.code}).status_code, 200)
-        self.assertFalse(self.client.post("/api/rewards/lookup/", {"code": g.code}).data["redeemable"])
+        payload["code"] = g.code
+        self.assertEqual(self.client.post("/api/rewards/redeem/", payload).status_code, 200)
+        self.assertFalse(self.client.post("/api/rewards/lookup/", payload).data["redeemable"])
         # a different owner gets the same answer as for an unknown code
         self.login("9100000099", "owner")
-        self.assertEqual(self.client.post("/api/rewards/lookup/", {"code": g.code}).status_code, 400)
-        self.assertEqual(self.client.post("/api/rewards/lookup/", {"code": "ZZZZZZZZ"}).status_code, 400)
+        self.assertEqual(self.client.post("/api/rewards/lookup/", payload).status_code, 400)
+        self.assertEqual(self.client.post("/api/rewards/lookup/", {"code": "ZZZZZZZZ", "shop_code": self.code}).status_code, 400)
 
     def test_customer_cannot_use_lookup(self):
         cust = self.customer("9100000021")
         self.client.credentials(HTTP_AUTHORIZATION=cust)
         self.assertEqual(self.client.post("/api/rewards/lookup/", {"code": "AAAAAAAA"}).status_code, 403)
+
+    def test_customer_requests_redemption_and_shop_approves_or_declines(self):
+        cust = self.customer("9100000022")
+        grant = self.grant(cust)
+        other_customer = self.customer("9100000024")
+        self.client.credentials(HTTP_AUTHORIZATION=other_customer)
+        self.assertEqual(self.client.post(f"/api/rewards/{grant.pk}/request/").status_code, 404)
+        self.client.credentials(HTTP_AUTHORIZATION=cust)
+        requested = self.client.post(f"/api/rewards/{grant.pk}/request/")
+        self.assertEqual((requested.status_code, requested.data["status"]), (201, "pending"))
+        customer_state = self.client.get(f"/api/me/shop/{self.code}/").data
+        self.assertEqual(customer_state["rewards"][0]["redemption_request_status"], "pending")
+        repeated = self.client.post(f"/api/rewards/{grant.pk}/request/")
+        self.assertEqual((repeated.status_code, repeated.data["id"]), (200, requested.data["id"]))
+        self.assertEqual(grant.redemption_requests.filter(status="pending").count(), 1)
+
+        self.as_owner()
+        queue = self.client.get(f"/api/b/{self.code}/redemptions/")
+        self.assertEqual(queue.status_code, 200)
+        self.assertEqual((queue.data[0]["id"], queue.data[0]["reward"]), (requested.data["id"], "Free chai"))
+        declined = self.client.post(
+            f"/api/b/{self.code}/redemptions/{requested.data['id']}/", {"action": "decline"},
+        )
+        self.assertEqual(declined.data["status"], "declined")
+        grant.refresh_from_db()
+        self.assertEqual(grant.status, "active")
+
+        self.client.credentials(HTTP_AUTHORIZATION=cust)
+        retry = self.client.post(f"/api/rewards/{grant.pk}/request/")
+        self.assertEqual(retry.status_code, 201)
+        self.as_owner()
+        approved = self.client.post(
+            f"/api/b/{self.code}/redemptions/{retry.data['id']}/", {"action": "approve"},
+        )
+        self.assertEqual(approved.data["status"], "approved")
+        grant.refresh_from_db()
+        self.assertEqual(grant.status, "used")
+        self.assertEqual(
+            self.client.post(f"/api/b/{self.code}/redemptions/{retry.data['id']}/", {"action": "approve"}).status_code,
+            400,
+        )
+
+    def test_customer_can_cancel_request_and_manual_code_redemption_clears_pending(self):
+        cust = self.customer("9100000023")
+        grant = self.grant(cust)
+        self.client.credentials(HTTP_AUTHORIZATION=cust)
+        request = self.client.post(f"/api/rewards/{grant.pk}/request/")
+        self.assertEqual(self.client.delete(f"/api/rewards/{grant.pk}/request/").data["status"], "cancelled")
+        self.as_owner()
+        next_request = self.client.post(f"/api/rewards/{grant.pk}/request/")
+        self.assertEqual(next_request.status_code, 403)
+        self.client.credentials(HTTP_AUTHORIZATION=cust)
+        next_request = self.client.post(f"/api/rewards/{grant.pk}/request/")
+        self.assertEqual(next_request.status_code, 201)
+        self.as_owner()
+        redeemed = self.client.post("/api/rewards/redeem/", {"code": grant.code, "shop_code": self.code})
+        self.assertEqual(redeemed.status_code, 200)
+        self.assertEqual(
+            self.client.get(f"/api/b/{self.code}/redemptions/").data, [],
+        )
 
     def test_reward_qr_is_png_and_rejects_junk(self):
         self.client.credentials()
@@ -256,7 +327,7 @@ class RewardEditAndInvolvementTests(GrowthBase):
         self.assertEqual(g.profile.user.username, "9100000042")
         self.assertIn(g.code, Notification.objects.filter(user=g.profile.user).latest("id").text)
         # the gift is a normal code the shop can redeem
-        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": g.code}).status_code, 200)
+        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": g.code, "shop_code": self.code}).status_code, 200)
         self.assertEqual(self.client.post(f"/api/b/{self.code}/winback/", {"segment": "lapsed", "title": "Again"}).status_code, 400)  # once a day
 
 

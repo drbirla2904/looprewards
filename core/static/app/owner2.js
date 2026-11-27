@@ -165,12 +165,13 @@
     ctx.restore();
   }
   async function drawQrCard(b) {
-    const W = 1080, H = 1560, FONT = 'Inter, "Noto Sans Devanagari", -apple-system, "Segoe UI", sans-serif', hi = b.language === 'hi';
+    const W = 1080, H = 2220, FONT = 'Inter, "Noto Sans Devanagari", -apple-system, "Segoe UI", sans-serif', hi = b.language === 'hi';
     try { await Promise.all([document.fonts.load('800 60px Inter'), document.fonts.load('500 30px Inter'), document.fonts.load('700 40px "Noto Sans Devanagari"')]); } catch (e) { /* system font fallback */ }
-    const [qr, logo, offletLogo] = await Promise.all([
+    const [qr, logo, offletLogo, publicBiz] = await Promise.all([
       loadImg('/api/b/' + b.shop_code + '/qr.png'),
       b.logo_url ? loadImg(b.logo_url) : null,
-      loadImg('/icon.svg')
+      loadImg('/icon.svg'),
+      api('b/' + b.shop_code + '/')
     ]);
     if (!qr) throw new Error(t('Could not load the QR code. Check your connection.'));
     if (!offletLogo) throw new Error(t('Could not load the OFFLet logo. Check your connection.'));
@@ -178,65 +179,105 @@
     const theme = QR_CARD_THEMES[b.category] || QR_CARD_THEMES.other;
     const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
     const rr = (px, py, w, hh, r) => { x.beginPath(); x.roundRect ? x.roundRect(px, py, w, hh, r) : x.rect(px, py, w, hh); };
-    const feature = (icon, title, detail, px, py) => {
-      x.save();
-      x.fillStyle = theme.soft; rr(px, py, 240, 180, 30); x.fill();
-      x.strokeStyle = theme.accent + '35'; x.lineWidth = 3; rr(px, py, 240, 180, 30); x.stroke();
-      x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.font = '700 60px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillStyle = theme.accent; x.fillText(icon, px + 120, py + 40);
-      x.fillStyle = '#1c1530'; x.font = '800 27px ' + FONT; x.fillText(title, px + 120, py + 112);
-      x.fillStyle = '#6b6485'; x.font = '500 20px ' + FONT; x.fillText(detail, px + 120, py + 150);
-      x.restore();
-    };
-    const backdrop = x.createLinearGradient(0, 0, W, H); backdrop.addColorStop(0, brand); backdrop.addColorStop(1, theme.accent);
-    x.fillStyle = backdrop; x.fillRect(0, 0, W, H);
-    x.fillStyle = '#fff'; rr(48, 48, W - 96, 1464, 56); x.fill();
-    x.fillStyle = theme.accent; rr(48, 48, W - 96, 14, 7); x.fill();
-    x.drawImage(offletLogo, 88, 78, 72, 72);
-    x.textAlign = 'left'; x.textBaseline = 'middle'; x.fillStyle = '#3f2380'; x.font = '800 40px ' + FONT; x.fillText('OFFLet', 174, 114);
-    const categoryLabel = hi ? theme.hi : theme.label;
-    x.font = '700 22px ' + FONT;
-    const badgeWidth = Math.min(500, x.measureText(categoryLabel).width + 92), badgeX = W - 88 - badgeWidth;
-    x.fillStyle = theme.soft; rr(badgeX, 78, badgeWidth, 72, 36); x.fill();
-    x.textAlign = 'left'; x.fillStyle = theme.accent; x.font = '700 32px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillText(theme.icon, badgeX + 22, 114);
-    x.font = '700 22px ' + FONT; x.fillText(categoryLabel, badgeX + 64, 114);
-    x.textAlign = 'center'; x.textBaseline = 'alphabetic';
-    x.globalAlpha = .12;
-    drawCategoryArt(x, b.category, 96, 220, 1.15, theme.accent);
-    drawCategoryArt(x, b.category, 900, 220, 1.15, theme.accent);
-    x.globalAlpha = 1;
-    /* logo or initial */
-    x.fillStyle = theme.soft; x.beginPath(); x.arc(W / 2, 178, 84, 0, Math.PI * 2); x.fill();
-    x.strokeStyle = theme.accent; x.lineWidth = 6; x.beginPath(); x.arc(W / 2, 178, 80, 0, Math.PI * 2); x.stroke();
-    x.save(); x.beginPath(); x.arc(W / 2, 178, 72, 0, Math.PI * 2); x.clip();
-    if (logo) { const k = Math.max(144 / logo.width, 144 / logo.height); x.fillStyle = '#fff'; x.fillRect(W / 2 - 72, 106, 144, 144); x.drawImage(logo, W / 2 - logo.width * k / 2, 178 - logo.height * k / 2, logo.width * k, logo.height * k); }
-    else { x.fillStyle = brand; x.fillRect(W / 2 - 72, 106, 144, 144); }
+    x.fillStyle = '#f7f5f0'; x.fillRect(0, 0, W, H);
+    const hero = x.createLinearGradient(48, 48, W - 48, 590); hero.addColorStop(0, '#17142b'); hero.addColorStop(1, '#30244b');
+    x.fillStyle = hero; rr(48, 48, W - 96, 560, 48); x.fill();
+    x.save(); x.globalAlpha = .12;
+    drawCategoryArt(x, b.category, 92, 250, 1.2, theme.soft);
+    drawCategoryArt(x, b.category, 890, 250, 1.2, theme.soft);
     x.restore();
-    if (!logo) { x.fillStyle = onBrand; x.font = '800 78px ' + FONT; x.fillText((b.name || '?').trim().charAt(0).toUpperCase(), W / 2, 205); }
-    /* name + tagline */
-    x.fillStyle = '#1c1530'; let size = 68, lines; do { x.font = '800 ' + size + 'px ' + FONT; lines = wrapText(x, b.name, 860, 2); size -= 4; } while (lines.length > 1 && size > 44 && lines.some(l => x.measureText(l).width > 860));
-    lines = wrapText(x, b.name, 860, 2); let y = 318; lines.forEach(l => { x.fillText(l, W / 2, y); y += size + 18; });
-    if (b.tagline) { x.fillStyle = '#6b6485'; x.font = '500 32px ' + FONT; wrapText(x, b.tagline, 860, 1).forEach(l => { x.fillText(l, W / 2, y + 4); y += 40; }); }
-    /* Fixed feature callouts frame the same centered QR on every shop's card. */
-    const qy = Math.max(y + 30, 500), qs = 360, featureX = 64, featureWidth = 240, featureHeight = 180;
-    const featureBottom = qy + qs - featureHeight + 32;
-    feature('🎁', hi ? 'रिवॉर्ड पाएँ' : 'Earn Rewards', hi ? 'स्टैम्प जमा करें' : 'Collect stamps', featureX, qy + 4);
-    feature('🎡', hi ? 'स्पिन करें' : 'Spin & Win', hi ? 'इनाम जीतें' : 'Spin for a prize', W - featureX - featureWidth, qy + 4);
-    feature('📣', hi ? 'ऑफ़र देखें' : 'Shop Offers', hi ? 'खास डील पाएँ' : 'Discover shop deals', featureX, featureBottom);
-    feature('💰', hi ? 'रेफ़र करें' : 'Refer & Earn', hi ? 'दोस्तों को बुलाएँ' : 'Share the rewards', W - featureX - featureWidth, featureBottom);
-    /* QR in a brand-coloured frame */
-    x.fillStyle = theme.soft; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.fill();
-    x.strokeStyle = theme.accent; x.lineWidth = 8; rr(W / 2 - qs / 2 - 20, qy - 20, qs + 40, qs + 40, 36); x.stroke();
+    x.fillStyle = '#ffffff'; rr(88, 78, 60, 60, 18); x.fill();
+    x.drawImage(offletLogo, 96, 86, 44, 44);
+    x.textAlign = 'left'; x.textBaseline = 'middle'; x.fillStyle = '#fff'; x.font = '800 34px ' + FONT; x.fillText('OFFLet', 164, 108);
+    const categoryLabel = hi ? theme.hi : theme.label;
+    x.font = '600 20px ' + FONT;
+    const badgeWidth = Math.min(460, x.measureText(categoryLabel).width + 76), badgeX = W - 88 - badgeWidth;
+    x.fillStyle = '#ffffff20'; rr(badgeX, 78, badgeWidth, 60, 30); x.fill();
+    x.textAlign = 'left'; x.fillStyle = '#fff'; x.font = '700 28px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillText(theme.icon, badgeX + 18, 108);
+    x.font = '600 20px ' + FONT; x.fillText(categoryLabel, badgeX + 56, 108);
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+    x.fillStyle = '#ffffff'; x.beginPath(); x.arc(W / 2, 248, 78, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = theme.accent; x.lineWidth = 7; x.beginPath(); x.arc(W / 2, 248, 76, 0, Math.PI * 2); x.stroke();
+    x.save(); x.beginPath(); x.arc(W / 2, 248, 68, 0, Math.PI * 2); x.clip();
+    if (logo) { const k = Math.max(136 / logo.width, 136 / logo.height); x.fillStyle = '#fff'; x.fillRect(W / 2 - 68, 180, 136, 136); x.drawImage(logo, W / 2 - logo.width * k / 2, 248 - logo.height * k / 2, logo.width * k, logo.height * k); }
+    else { x.fillStyle = brand; x.fillRect(W / 2 - 68, 180, 136, 136); }
+    x.restore();
+    if (!logo) { x.fillStyle = onBrand; x.font = '800 72px ' + FONT; x.fillText((b.name || '?').trim().charAt(0).toUpperCase(), W / 2, 273); }
+    x.fillStyle = '#fff'; let size = 60, lines;
+    do { x.font = '800 ' + size + 'px ' + FONT; lines = wrapText(x, b.name, 860, 2); if (lines.every(line => x.measureText(line).width <= 860) || size <= 40) break; size -= 2; } while (size > 38);
+    let nameY = 366; lines.forEach(line => { x.fillText(line, W / 2, nameY); nameY += size + 6; });
+    const ratingCount = Number(publicBiz.rating_count || 0), ratingAverage = Number(publicBiz.rating_average);
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+    let identityY = nameY + 24;
+    if (ratingCount > 0 && Number.isFinite(ratingAverage)) {
+      const filledStars = Math.max(0, Math.min(5, Math.round(ratingAverage)));
+      x.fillStyle = '#f5b52e'; x.font = '700 31px ' + FONT;
+      x.fillText('★'.repeat(filledStars) + '☆'.repeat(5 - filledStars), W / 2, identityY);
+      identityY += 38;
+    }
+    if (b.tagline) { x.fillStyle = '#e8e4f0'; x.font = '500 26px ' + FONT; x.fillText(wrapText(x, b.tagline, 820, 1)[0], W / 2, Math.min(590, identityY + 8)); }
+
+    x.textAlign = 'center'; x.fillStyle = '#1c1530'; x.font = '800 36px ' + FONT;
+    x.fillText(hi ? 'हर विज़िट पर कुछ और पाएँ' : 'A LITTLE EXTRA EVERY VISIT', W / 2, 675);
+    x.fillStyle = '#6b6485'; x.font = '500 23px ' + FONT;
+    x.fillText(hi ? 'इन रिवॉर्ड्स का आनंद लेने के लिए स्कैन करें' : 'Scan once. Enjoy more every time.', W / 2, 713);
+    const rewards = hi
+      ? [
+          ['🎁', 'स्टैम्प रिवॉर्ड', 'हर विज़िट पर स्टैम्प पाएँ'],
+          ['🎡', 'स्पिन करें और जीतें', 'शानदार इनाम जीतने का मौका'],
+          ['🛍️', 'शॉप ऑफ़र', 'खास डील और ऑफ़र पाएँ'],
+          ['💸', 'रेफ़र करें और कमाएँ', 'दोस्तों को बुलाएँ, रिवॉर्ड पाएँ']
+        ]
+      : [
+          ['🎁', 'Stamp rewards', 'Collect stamps on every visit'],
+          ['🎡', 'Spin & Win', 'Get a chance to win prizes'],
+          ['🛍️', 'Shop offers', 'Unlock special deals here'],
+          ['💸', 'Refer & earn', 'Invite friends. Earn rewards.']
+        ];
+    rewards.forEach(([icon, title, detail], index) => {
+      const col = index % 2, row = Math.floor(index / 2), px = 70 + col * 480, py = 750 + row * 290, cw = 460, ch = 265;
+      x.save(); x.shadowColor = 'rgba(25, 20, 43, .12)'; x.shadowBlur = 18; x.shadowOffsetY = 6;
+      x.fillStyle = '#fff'; rr(px, py, cw, ch, 30); x.fill(); x.restore();
+      x.strokeStyle = theme.accent + '66'; x.lineWidth = 3; rr(px, py, cw, ch, 30); x.stroke();
+      x.fillStyle = theme.accent; rr(px, py, cw, 13, 7); x.fill();
+      x.fillStyle = theme.soft; x.beginPath(); x.arc(px + cw / 2, py + 82, 58, 0, Math.PI * 2); x.fill();
+      x.strokeStyle = theme.accent + '66'; x.lineWidth = 3; x.beginPath(); x.arc(px + cw / 2, py + 82, 58, 0, Math.PI * 2); x.stroke();
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = '700 68px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillText(icon, px + cw / 2, py + 83);
+      x.fillStyle = '#1c1530'; x.font = '800 30px ' + FONT; x.fillText(title, px + cw / 2, py + 169, cw - 34);
+      x.fillStyle = '#6b6485'; x.font = '500 21px ' + FONT;
+      wrapText(x, detail, cw - 52, 2).forEach((line, lineIndex) => x.fillText(line, px + cw / 2, py + 208 + lineIndex * 26));
+    });
+
+    x.save(); x.shadowColor = 'rgba(25, 20, 43, .16)'; x.shadowBlur = 22; x.shadowOffsetY = 8;
+    x.fillStyle = '#fff'; rr(260, 1350, 560, 440, 38); x.fill(); x.restore();
+    x.strokeStyle = '#e9e4ee'; x.lineWidth = 2; rr(260, 1350, 560, 440, 38); x.stroke();
+    const qs = 280, qy = 1370;
     x.imageSmoothingEnabled = false; x.drawImage(qr, W / 2 - qs / 2, qy, qs, qs);
-    /* call to action */
-    const cy = qy + qs + 70; x.font = '800 46px ' + FONT; const label = hi ? 'स्कैन करें और इनाम पाएं' : 'Scan to join rewards', pw = Math.min(900, x.measureText(label).width + 120);
-    x.fillStyle = brand; rr(W / 2 - pw / 2, cy, pw, 100, 50); x.fill(); x.fillStyle = onBrand; x.fillText(label, W / 2, cy + 66);
-    x.fillStyle = '#6b6485'; x.font = '500 30px ' + FONT; x.fillText(hi ? 'OFFLet पर स्टैम्प और रिवॉर्ड पाएं' : 'Collect stamps and rewards on OFFLet', W / 2, cy + 160);
-    /* shop details, as many lines as fit */
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = '#1c1530'; x.font = '800 34px ' + FONT;
+    const scanLabel = hi ? 'स्कैन करें और इनाम पाएँ' : 'Scan to join rewards';
+    x.fillText(scanLabel, W / 2, 1688);
+    const actionLabel = hi ? 'अभी स्कैन करें' : 'SCAN & START';
+    x.font = '800 25px ' + FONT;
+    const pw = Math.min(420, x.measureText(actionLabel).width + 72);
+    x.fillStyle = brand; rr(W / 2 - pw / 2, 1708, pw, 58, 29); x.fill();
+    x.fillStyle = onBrand; x.fillText(actionLabel, W / 2, 1746);
+
+    x.save(); x.fillStyle = '#fff'; rr(90, 1830, 900, 300, 30); x.fill(); x.restore();
+    x.strokeStyle = '#e9e4ee'; x.lineWidth = 2; rr(90, 1830, 900, 300, 30); x.stroke();
+    x.fillStyle = theme.soft; x.beginPath(); x.arc(145, 1880, 27, 0, Math.PI * 2); x.fill();
+    x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = '700 27px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; x.fillStyle = theme.accent; x.fillText('📍', 145, 1881);
+    x.textAlign = 'left'; x.textBaseline = 'alphabetic'; x.fillStyle = theme.accent; x.font = '800 22px ' + FONT;
+    x.fillText(hi ? 'हमारी दुकान' : 'YOUR NEIGHBOURHOOD SHOP', 190, 1888);
     const info = [b.address, [b.hours, b.phone].filter(Boolean).join('  ·  '), b.pay_upi_id ? 'UPI: ' + b.pay_upi_id : ''].filter(Boolean);
-    x.fillStyle = '#4a4466'; x.font = '500 28px ' + FONT; let iy = cy + 222, left = Math.floor((1496 - iy) / 38);
-    for (const row of info) { for (const l of wrapText(x, row, 880, Math.min(2, left))) { if (left <= 0) break; x.fillText(l, W / 2, iy); iy += 38; left--; } }
-    x.globalAlpha = .85; x.fillStyle = onBrand; x.font = '700 24px ' + FONT; x.fillText('Powered by OFFLet', W / 2, H - 20); x.globalAlpha = 1;
+    x.fillStyle = '#4a4466'; x.font = '500 22px ' + FONT;
+    const detailLines = info.flatMap(row => wrapText(x, row, 820, 2));
+    detailLines.slice(0, 5).forEach((line, index) => {
+      const y = 1930 + index * 34;
+      x.fillStyle = theme.accent; x.beginPath(); x.arc(145, y - 7, 4, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#4a4466'; x.fillText(line, 164, y);
+    });
+    x.textAlign = 'center'; x.globalAlpha = .8; x.fillStyle = '#6b6485'; x.font = '700 19px ' + FONT; x.fillText('Powered by OFFLet', W / 2, 2175); x.globalAlpha = 1;
     return c;
   }
   function qrCard() {

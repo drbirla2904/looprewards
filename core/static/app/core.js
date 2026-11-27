@@ -147,6 +147,113 @@
     d.showModal();
     return { el: d, close };
   }
+  function shopQRTarget(raw) {
+    const value = String(raw || '').trim();
+    let code, params = new URLSearchParams();
+    if (/^[a-z0-9]{6}$/i.test(value)) {
+      code = value.toLowerCase();
+    } else {
+      let url;
+      try { url = new URL(value, location.origin); } catch (e) { return null; }
+      const match = /^\/b\/([a-z0-9]{6})\/?$/i.exec(url.pathname);
+      if (!match) return null;
+      code = match[1].toLowerCase();
+      for (const key of ['c', 'ref', 'tab']) {
+        const param = url.searchParams.get(key);
+        if (param && (key !== 'tab' || ['earn', 'rewards', 'book', 'history', 'invite', 'spin'].includes(param))) {
+          params.set(key, param);
+        }
+      }
+    }
+    return '/b/' + encodeURIComponent(code) + '/' + (params.size ? '?' + params.toString() : '');
+  }
+  function scanShopQR() {
+    const video = h('video.scan-video', { autoplay: true, playsinline: true, muted: true, 'aria-label': t('Camera view') });
+    const camera = h('div.scan-camera', video);
+    const status = h('p.scan-status', { role: 'status' }, t('Starting camera…'));
+    const code = h('input', { type: 'text', inputmode: 'text', maxlength: 6, autocomplete: 'off', autocapitalize: 'characters', placeholder: t('6-character shop code'), 'aria-label': t('6-character shop code') });
+    const codeError = h('p.scan-error', { role: 'alert', hidden: true });
+    const openCode = () => {
+      const target = shopQRTarget(code.value);
+      if (!target) {
+        codeError.textContent = t('Enter a valid 6-character shop code.');
+        codeError.hidden = false;
+        return;
+      }
+      stopCamera();
+      location.href = target;
+    };
+    const manual = h('form.scan-manual', { onsubmit: e => { e.preventDefault(); openCode(); } },
+      h('label', t('Or enter shop code'), code), codeError,
+      h('button.btn.block', { type: 'submit' }, t('Open shop')));
+    const m = modal(t('Scan shop QR'), h('div.stack', camera, status, manual), { cls: 'scan-modal' });
+    let stream = null, frame = 0, checking = false, stopped = false;
+    function stopCamera() {
+      stopped = true;
+      if (frame) cancelAnimationFrame(frame);
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      video.srcObject = null;
+    }
+    m.el.addEventListener('close', stopCamera, { once: true });
+    const Detector = window.BarcodeDetector;
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camera.hidden = true;
+      status.textContent = t('Camera scanning is unavailable here. Enter the shop code instead.');
+      return;
+    }
+    if (!Detector) {
+      camera.hidden = true;
+      status.textContent = t('QR scanning is not supported in this browser. Enter the shop code instead.');
+      return;
+    }
+    let detector;
+    try { detector = new Detector({ formats: ['qr_code'] }); }
+    catch (e) {
+      camera.hidden = true;
+      status.textContent = t('QR scanning is not supported in this browser. Enter the shop code instead.');
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+      .then(async cameraStream => {
+        if (stopped) { cameraStream.getTracks().forEach(track => track.stop()); return; }
+        stream = cameraStream;
+        video.srcObject = stream;
+        await video.play();
+        status.textContent = t('Point your camera at a shop QR code.');
+        const scanFrame = async () => {
+          if (stopped || checking || !m.el.open) return;
+          checking = true;
+          try {
+            const results = await detector.detect(video);
+            for (const result of results) {
+              const target = shopQRTarget(result.rawValue);
+              if (!target) {
+                status.textContent = t('That QR code is not a shop QR code. Keep scanning or enter the shop code.');
+                continue;
+              }
+              stopCamera();
+              m.close();
+              location.href = target;
+              return;
+            }
+          } catch (e) {
+            stopCamera();
+            status.textContent = t('Could not read the QR code. Enter the shop code instead.');
+            return;
+          } finally {
+            checking = false;
+          }
+          if (!stopped && m.el.open) frame = requestAnimationFrame(scanFrame);
+        };
+        frame = requestAnimationFrame(scanFrame);
+      })
+      .catch(() => {
+        stopCamera();
+        camera.hidden = true;
+        status.textContent = t('Camera access was unavailable. Check permission or enter the shop code.');
+      });
+  }
+  FX.scanShopQR = scanShopQR;
   function confirmBox(msg, okLabel, danger) {
     return new Promise(res => {
       const m = modal(t('Please confirm'), h('div.stack', h('p', msg), h('div.row', { style: 'justify-content:flex-end' },
@@ -298,7 +405,7 @@
 
   /* ---------------- layout + nav ---------------- */
   const NAV = {
-    customer: [['', 'Home', 'home'], ['rewards', 'Rewards', 'gift'], ['bookings', 'Bookings', 'cal'], ['account', 'Account', 'user']],
+    customer: [['', 'Home', 'home'], ['rewards', 'Rewards', 'gift'], ['scan', 'Scan', 'scan'], ['bookings', 'Bookings', 'cal'], ['account', 'Account', 'user']],
     staff: [['', 'Queue', 'check'], ['bookings', 'Bookings', 'cal'], ['counter', 'Counter code', 'scan'], ['account', 'Account', 'user']],
     vendor: [['', 'Dashboard', 'home'], ['kit', 'Marketing kit', 'mega'], ['statements', 'Earnings', 'card'], ['account', 'Account', 'user']],
     owner: [['', 'Today', 'home'], ['customers', 'Customers', 'users'], ['rewards', 'Rewards', 'gift'], ['bookings', 'Bookings', 'cal'],
@@ -311,6 +418,10 @@
   }
   const curPath = () => (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
   function navLink(i, cls) {
+    if (S.role === 'customer' && i[0] === 'scan') {
+      return h('button.nav.scan-action', { type: 'button', 'aria-label': t('Scan shop QR'), onclick: scanShopQR },
+        h('span.scan-bubble', ico('scan')), h('span.scan-label', t(i[1])));
+    }
     const badge = (i[0] === '' && S.pending && (S.role === 'owner' || S.role === 'staff')) || (i[0] === 'rewards' && false) ? h('span.dot', S.pending) : null;
     return h('a.nav', { href: '#/' + i[0], 'aria-current': curPath() === i[0] ? 'page' : null, onclick: () => { const d = document.querySelector('dialog.more'); if (d) d.remove(); } }, ico(i[2]), t(i[1]), badge);
   }
@@ -318,7 +429,7 @@
     const items = navItems();
     const side = $('.side nav'), tabs = $('.tabs');
     if (!side) return;
-    side.replaceChildren(...items.map(i => navLink(i)));
+    side.replaceChildren(...items.filter(i => !(S.role === 'customer' && i[0] === 'scan')).map(i => navLink(i)));
     const main = items.slice(0, items.length > 5 ? 4 : 5), rest = items.length > 5 ? items.slice(4) : [];
     tabs.replaceChildren(...main.map(i => navLink(i)));
     if (rest.length) tabs.appendChild(h('button.nav', { onclick: () => { const m = modal(t('More'), h('div.stack.s', rest.map(i => navLink(i)))); m.el.classList.add('more'); } }, ico('more'), t('More')));
@@ -374,10 +485,23 @@
       const n = await api('notifications/');
       const unread = n.filter(x => !x.read).length;
       let pend = S.pending;
-      if (S.role === 'owner' || S.role === 'staff') pend = (await api('owner/pending/')).length;
+      let redemptionPend = S.redemptionPending || 0;
+      if ((S.role === 'owner' || S.role === 'staff') && S.biz) {
+        const [entries, redemptions] = await Promise.all([
+          api('owner/pending/'), api('b/' + S.biz.shop_code + '/redemptions/')
+        ]);
+        pend = entries.filter(e => e.shop_code === S.biz.shop_code).length + redemptions.length;
+        redemptionPend = redemptions.length;
+      }
       const grew = pend > S.pending;
-      if (unread !== S.unread || pend !== S.pending) { S.unread = unread; S.pending = pend; drawNav(); }
-      if (grew) { toast(t('A customer is waiting for approval.')); if (curPath() === '') FX.render(true); }
+      const newRedemption = redemptionPend > (S.redemptionPending || 0);
+      if (unread !== S.unread || pend !== S.pending || redemptionPend !== (S.redemptionPending || 0)) {
+        S.unread = unread; S.pending = pend; S.redemptionPending = redemptionPend; drawNav();
+      }
+      if (grew) {
+        toast(t(newRedemption ? 'A customer requested to redeem a reward.' : 'A customer is waiting for approval.'));
+        if (curPath() === '') FX.render(true);
+      }
     } catch (e) { /* offline: try next tick */ }
   }
   setInterval(poll, 30000);

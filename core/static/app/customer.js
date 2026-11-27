@@ -5,28 +5,55 @@
   const R = FX.routes.customer;
   const TYPE_HINT = { count: 'How many?', amount: 'Bill amount (₹)', visit: 'Visit' };
   const SOCIALS = [
-    ['instagram_url', 'Instagram', '◎', 'instagram'],
-    ['facebook_url', 'Facebook', 'f', 'facebook'],
-    ['youtube_url', 'YouTube', '▶', 'youtube'],
-    ['tiktok_url', 'TikTok', '♪', 'tiktok'],
-    ['x_url', 'X', 'X', 'x']
+    ['instagram_url', 'Instagram', 'instagram'],
+    ['facebook_url', 'Facebook', 'facebook'],
+    ['youtube_url', 'YouTube', 'youtube'],
+    ['tiktok_url', 'TikTok', 'tiktok'],
+    ['x_url', 'X', 'x']
   ];
+  const svg = (name, attrs, ...kids) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    kids.forEach(child => el.appendChild(child));
+    return el;
+  };
+  const SHOP_ICONS = {
+    instagram: svg('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'aria-hidden': 'true' },
+      svg('rect', { x: 3, y: 3, width: 18, height: 18, rx: 5 }), svg('circle', { cx: 12, cy: 12, r: 4 }),
+      svg('circle', { cx: 17.5, cy: 6.5, r: 1, fill: 'currentColor', stroke: 'none' })),
+    facebook: svg('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' },
+      svg('path', { d: 'M13.5 21v-8h2.7l.4-3h-3.1V8.1c0-.9.3-1.6 1.6-1.6h1.7V3.8c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3V10H7.3v3h2.8v8h3.4Z' })),
+    tiktok: svg('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' },
+      svg('path', { d: 'M19.6 6.2a5.3 5.3 0 0 1-3.3-3.8V2h-4v13.6a2.8 2.8 0 1 1-2-2.7V8.8a6.8 6.8 0 1 0 6 6.8V9.1a9.3 9.3 0 0 0 5 1.5v-4a5.3 5.3 0 0 1-1.7-.4Z' })),
+    x: svg('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' },
+      svg('path', { d: 'M18.9 2H22l-6.8 7.8L23.2 22h-6.3L12 14.6 5.6 22H2.5l7.3-8.4L1.9 2h6.5l4.5 6.8L18.9 2Zm-1.1 18h1.7L7.4 3.9H5.6L17.8 20Z' })),
+    youtube: svg('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' },
+      svg('path', { d: 'M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.6V8.4l6.3 3.6-6.3 3.6Z' })),
+    whatsapp: svg('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' },
+      svg('path', { d: 'M20.52 3.48A11.88 11.88 0 0 0 12.08 0C5.48 0 .11 5.36.11 11.96c0 2.11.55 4.17 1.6 5.99L0 24l6.22-1.63a11.97 11.97 0 0 0 5.86 1.49h.01c6.6 0 11.97-5.37 11.97-11.97 0-3.2-1.25-6.2-3.54-8.41ZM12.09 21.83h-.01c-1.83 0-3.63-.49-5.2-1.42l-.37-.22-3.69.97.99-3.6-.24-.37a9.82 9.82 0 0 1-1.51-5.23c0-5.43 4.42-9.85 9.86-9.85a9.8 9.8 0 0 1 6.97 2.89 9.78 9.78 0 0 1 2.88 6.96c0 5.44-4.43 9.86-9.87 9.86Zm5.41-7.38c-.3-.15-1.77-.87-2.05-.97-.28-.1-.48-.15-.68.15-.2.3-.78.97-.95 1.17-.17.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.51-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.07-.15-.68-1.64-.93-2.24-.24-.59-.49-.51-.68-.52h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.02-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.13 4.54.72.31 1.28.5 1.72.64.72.23 1.37.2 1.88.12.57-.08 1.77-.72 2.02-1.42.25-.7.25-1.3.18-1.42-.08-.13-.28-.2-.58-.35Z' })),
+    phone: svg('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' },
+      svg('path', { d: 'M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.02-.24 11.36 11.36 0 0 0 3.56.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.36 11.36 0 0 0 .57 3.56 1 1 0 0 1-.25 1.02l-2.2 2.21Z' })),
+    map: svg('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'aria-hidden': 'true' },
+      svg('path', { d: 'M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z' }), svg('circle', { cx: 12, cy: 10, r: 2.5 })),
+    clock: svg('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'aria-hidden': 'true' },
+      svg('circle', { cx: 12, cy: 12, r: 9 }), svg('path', { d: 'M12 7v5l3 2' }))
+  };
+  const shopIcon = name => SHOP_ICONS[name].cloneNode(true);
 
   function ratingSummary(shop) {
     const average = shop.rating_average;
     const count = Number(shop.rating_count || 0);
     if (!count) return null;
-    return h('span.shop-rating', { 'aria-label': t('Average rating: {rating} out of 5 from {count} ratings', {
-      rating: Number(average).toFixed(1), count
-    }) }, FX.stars(Number(average)), h('b', Number(average).toFixed(1)),
-    h('small', t('{n} ratings', { n: count })));
+    return h('span.shop-rating', { 'aria-label': t('Average rating: {rating} out of 5', {
+      rating: Number(average).toFixed(1)
+    }) }, FX.stars(Number(average)), h('b', Number(average).toFixed(1)));
   }
 
   /* ---------- home: one punch card per shop ---------- */
   function shopCard(s) {
     const b = s.best, tier = s.tier;
     return h('a.shopcard' + (s.active_rewards ? '.ready' : ''), { href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color), 'aria-label': s.shop },
-      h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.shop)), h('div.grow', h('h3', s.shop), ratingSummary(s), h('small', FX.lang === 'hi' ? s.category_label_hi : s.category_label)),
+      h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.shop)), h('div.grow', h('h3', s.shop), ratingSummary(s), h('small.shop-category', FX.lang === 'hi' ? s.category_label_hi : s.category_label)),
         tierPill(tier.tier)),
       b ? h('div.stack.s', h('div.row.between', h('small', b.title), h('small.num', FX.fmtVal(b.type, b.current) + ' / ' + FX.fmtVal(b.type, b.target))),
         stampRow(b.current, b.target, b.type) || h('div.meter', h('i', { style: { width: b.pct + '%' } })),
@@ -53,7 +80,7 @@
         discoverBox.replaceChildren(...(r.shops.length ? r.shops.map(s => h('a.shopcard', {
           href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color)
         }, h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.name)),
-          h('div.grow', h('h3', s.name), ratingSummary(s), h('small', FX.lang === 'hi' ? s.category_label_hi : s.category_label)),
+          h('div.grow', h('h3', s.name), ratingSummary(s), h('small.shop-category', FX.lang === 'hi' ? s.category_label_hi : s.category_label)),
           s.distance_km != null ? h('small.pill', s.distance_km < 1 ? '< 1 km' : s.distance_km + ' km') : null),
         s.tagline ? h('small', s.tagline) : null,
           s.address ? h('small.muted', s.address) : null,
@@ -170,13 +197,14 @@
     return h('div.card.stack', h('h2', t('Shop offers')), biz.offers.map(offer => {
       const label = offer.offer_type === 'percent_off' ? offer.value + '% off' :
         offer.offer_type === 'fixed_price' ? t('Fixed price') : t('Buy 1 get 1');
-      return h('div.offer-group.stack.s', h('span.offer-badge', label), offer.items.map(item => {
+      return h('div.offer-group.stack.s', h('span.offer-badge', label),
+        h('div.offer-customer-items', offer.items.map(item => {
         const price = Number(item.price), current = offer.offer_type === 'percent_off' ? price * (1 - Number(offer.value) / 100) : Number(item.offer_price);
-        return h('div.li', item.image ? h('img.offer-thumb', { src: item.image, alt: item.name }) : null,
+        return h('div.offer-customer-item', item.image ? h('img.offer-thumb', { src: item.image, alt: item.name }) : null,
           h('div.grow', h('b', item.name), h('div.offer-price',
             offer.offer_type === 'fixed_price' || offer.offer_type === 'percent_off' ? h('b', FX.rupee(current)) : null,
             offer.offer_type === 'fixed_price' || offer.offer_type === 'percent_off' ? h('del', FX.rupee(price)) : h('b', FX.rupee(price)))));
-      }));
+      })));
     }));
   }
 
@@ -184,14 +212,24 @@
     const c = FX.shopVars(biz.brand_color);
     const hasLocation = biz.lat != null && biz.lng != null && Number.isFinite(Number(biz.lat)) && Number.isFinite(Number(biz.lng));
     const directionsUrl = biz.maps_url || (hasLocation ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(biz.lat + ',' + biz.lng) : '');
-    const socialLinks = SOCIALS.filter(([key]) => biz[key]).map(([key, name, glyph, style]) =>
-      h('a.social-link.' + style, { href: biz[key], target: '_blank', rel: 'noopener noreferrer', title: t('Follow on {platform}', { platform: name }), 'aria-label': t('Follow on {platform}', { platform: name }) }, glyph));
-    const links = [biz.phone && h('a.btn.ghost.sm', { href: 'tel:' + biz.phone }, t('Call')), biz.whatsapp && h('a.btn.ghost.sm', { href: 'https://wa.me/' + biz.whatsapp.replace(/\D/g, ''), target: '_blank', rel: 'noopener' }, 'WhatsApp'), directionsUrl && h('a.btn.ghost.sm', { href: directionsUrl, target: '_blank', rel: 'noopener' }, t('Directions'))].filter(Boolean);
-    return h('div.stack', h('div.shophead', { style: c }, h('div.logo-s', biz.logo_url ? h('img', { src: biz.logo_url, alt: '' }) : FX.initial(biz.name)),
-      h('div.grow', h('h1', biz.name), h('div.small', FX.lang === 'hi' ? biz.category_label_hi : biz.category_label), ratingSummary(biz), biz.tagline ? h('div.small', biz.tagline) : null, biz.address ? h('div.small.muted', biz.address) : null)),
-      biz.about ? h('p.muted', biz.about) : null, biz.hours ? h('p.small.muted', t('Open: {h}', { h: biz.hours })) : null,
-      socialLinks.length ? h('div.row.wrap.social-links', h('small.muted', t('Follow this shop')), socialLinks) : null,
-      links.length ? h('div.row.wrap', links) : null);
+    const socialLinks = SOCIALS.filter(([key]) => biz[key]).map(([key, name, icon]) =>
+      h('a.social-link.' + icon, { href: biz[key], target: '_blank', rel: 'noopener noreferrer', title: t('Follow on {platform}', { platform: name }), 'aria-label': t('Follow on {platform}', { platform: name }) }, shopIcon(icon)));
+    const contactLink = (href, label, icon, extra) =>
+      h('a.shop-contact-action', Object.assign({ href, title: t(label), 'aria-label': t(label) }, extra || {}), shopIcon(icon));
+    const links = [
+      biz.phone && contactLink('tel:' + biz.phone, 'Call', 'phone'),
+      biz.whatsapp && contactLink('https://wa.me/' + biz.whatsapp.replace(/\D/g, ''), 'WhatsApp', 'whatsapp', { target: '_blank', rel: 'noopener noreferrer' }),
+      directionsUrl && contactLink(directionsUrl, 'Directions', 'map', { target: '_blank', rel: 'noopener noreferrer' })
+    ].filter(Boolean);
+    const contactActions = biz.hours || socialLinks.length || links.length ? h('div.shop-contact-actions',
+      biz.hours ? h('span.shop-hours', { title: t('Open: {h}', { h: biz.hours }) },
+        shopIcon('clock'), h('span', t('Open: {h}', { h: biz.hours }))) : null,
+      socialLinks, links) : null;
+    return h('div.stack', h('div.shophead', { style: c },
+      h('div.shophead-main', h('div.logo-s', biz.logo_url ? h('img', { src: biz.logo_url, alt: '' }) : FX.initial(biz.name)),
+        h('div.grow', h('h1', biz.name), h('div.small', FX.lang === 'hi' ? biz.category_label_hi : biz.category_label), ratingSummary(biz), biz.tagline ? h('div.small', biz.tagline) : null, biz.address ? h('div.small.muted', biz.address) : null)),
+      contactActions),
+      biz.about ? h('p.muted', biz.about) : null);
   }
 
   /* ---------- logged-in shop page ---------- */
@@ -408,7 +446,28 @@
       h('button.btn.block', { style: 'background:#fff;color:#15192b;background-image:none', onclick: () => FX.copy(g.code) }, t('Copy code'))),
       { cls: 'pass', style: FX.shopVars(color) });
   }
-  const ticket = (g, shop, color, shopName) => h('div.ticket.' + g.status, h('div.main',
+  const ticket = (g, shop, color, shopName) => {
+    const requestStatus = g.redemption_request_status;
+    const requestButton = () => h('button.btn.sm', { onclick: e => busy(e.target, async () => {
+      await api('rewards/' + g.id + '/request/', 'POST');
+      toast(t('Redemption request sent. The shop will approve it.'));
+      FX.render(true);
+    }) }, t('Request redemption'));
+    const requestActions = g.status === 'active' ? requestStatus === 'pending'
+      ? h('div.stack.s', h('span.pill.warn', t('Waiting for shop approval')),
+        h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => {
+          await api('rewards/' + g.id + '/request/', 'DELETE');
+          toast(t('Redemption request cancelled.'));
+          FX.render(true);
+        }) }, t('Cancel request')))
+      : h('div.stack.s',
+        requestStatus === 'declined' ? h('small.muted', t('The shop declined your last request. Your reward is still available.')) : null,
+        requestButton()) : null;
+    const codePass = h('div.stack.s', h('small.muted', t('Show this code to staff if you cannot request approval in the app.')),
+      h('div.code', g.code),
+      h('div.row.wrap', h('button.btn.sm', { onclick: () => passModal(g, color, shopName || shop) }, t('Show at counter')),
+        h('button.btn.ghost.sm', { onclick: () => FX.copy(g.code) }, t('Copy'))));
+    return h('div.ticket.' + g.status, h('div.main',
     g.image ? h('img.offer-thumb', { src: g.image, alt: g.item_name || g.title }) : null,
     g.item_name ? h('b', g.item_name) : null, h('b', g.title),
     g.type === 'percent_off' ? h('span.offer-badge', g.value + '% OFF') :
@@ -418,9 +477,10 @@
     shop ? h('small.muted', shop) : null,
     g.terms ? h('small.muted', g.terms) : null, h('small', g.status === 'active' ? FX.until(g.expires_at) : t(g.status === 'used' ? 'Used' : g.status === 'expired' ? 'Expired' : 'Cancelled')),
     g.trigger === 'welcome' ? pill(t('Welcome gift'), 'ok') : g.trigger === 'winback' ? pill(t('Welcome-back gift'), 'ok') : g.trigger === 'referral' ? pill(t('Referral reward'), 'info') : g.trigger === 'social' ? pill(t('Social follow reward'), 'info') : null),
-    h('div.stub', h('small.muted', t('Show this code')), h('div.code', g.code),
-      g.status === 'active' ? h('button.btn.sm', { onclick: () => passModal(g, color, shopName || shop) }, t('Show at counter')) : null,
-      g.status === 'active' ? h('button.btn.ghost.sm', { onclick: () => FX.copy(g.code) }, t('Copy')) : null));
+    requestActions,
+    g.status === 'active' ? h('details.code-fallback', h('summary.muted', t('Use code instead')), codePass) :
+      h('div.stub', h('small.muted', t('Reward code')), h('div.code', g.code)));
+  };
   function rewardsTab(biz, me) {
     const act = me.rewards.filter(g => g.status === 'active'), old = me.rewards.filter(g => g.status !== 'active');
     return h('div.stack', act.length ? act.map(g => ticket(g, null, biz.brand_color, biz.name)) : empty('No rewards ready', 'Keep collecting stamps. Your rewards appear here.'),

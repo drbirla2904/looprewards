@@ -205,15 +205,15 @@
     const out = h('div', { 'aria-live': 'polite' });
     const STATUS = { used: 'Already used', expired: 'Expired', revoked: 'Cancelled' };
     const preview = g => h('div.redeem-preview' + (g.redeemable ? '.ok' : '.bad'), h('div.t', '🎁 ' + g.reward),
-      h('div.small', g.customer + ' · …' + g.customer_mobile_tail), g.terms ? h('div.small.muted', g.terms) : null,
+      h('div.small', g.shop), h('div.small', g.customer + ' · …' + g.customer_mobile_tail), g.terms ? h('div.small.muted', g.terms) : null,
       g.redeemable ? h('small', FX.until(g.expires_at)) : h('b', t(STATUS[g.status] || g.status)),
       g.redeemable ? h('button.btn.lg.block', { onclick: e => busy(e.target, async () => {
-        await api('rewards/redeem/', 'POST', { code: g.code }); FX.confetti(50); FX.haptic([20, 30, 20]);
+        await api('rewards/redeem/', 'POST', { code: g.code, shop_code: S.biz.shop_code }); FX.confetti(50); FX.haptic([20, 30, 20]);
         toast(t('Redeemed: {r}', { r: g.reward })); c.value = ''; out.replaceChildren(); }) }, t('Redeem now')) : null);
     const look = async () => {
       const code = c.value.trim(); if (!code) return;
       out.replaceChildren(h('div.skel.block'));
-      try { out.replaceChildren(preview(await api('rewards/lookup/', 'POST', { code }))); }
+      try { out.replaceChildren(preview(await api('rewards/lookup/', 'POST', { code, shop_code: S.biz.shop_code }))); }
       catch (e) { out.replaceChildren(h('div.redeem-preview.bad', h('b', e.message))); }
     };
     c.addEventListener('keydown', e => { if (e.key === 'Enter') look(); });
@@ -225,6 +225,24 @@
   async function queueData() {
     const [pend, recent] = await Promise.all([api('owner/pending/'), api('owner/recent/')]);
     return [pend.filter(e => e.shop_code === code()), recent.filter(e => e.shop_code === code())];
+  }
+  function redemptionQueue(list, onDone) {
+    if (!list.length) return null;
+    const decide = (item, action) => e => busy(e.target, async () => {
+      await api('b/' + code() + '/redemptions/' + item.id + '/', 'POST', { action });
+      toast(t(action === 'approve' ? 'Redemption approved: {r}' : 'Redemption declined: {r}', { r: item.reward }));
+      onDone();
+    });
+    return h('div.card.stack', h('div.hd', h('h3', t('Reward redemption requests')), pill(list.length, 'warn')),
+      list.map(item => h('div.li', h('div.grow.stack.s',
+        h('b', item.customer + ' · ' + item.reward),
+        item.item_name ? h('div.small', item.item_name) : null,
+        h('div.small.muted', '…' + item.mobile_last4 + ' · ' + FX.ago(item.requested_at)),
+        item.terms ? h('div.small.muted', item.terms) : null,
+        h('small', FX.until(item.expires_at))),
+      h('div.approval-actions',
+        h('button.btn.ghost.sm', { onclick: decide(item, 'decline') }, t('Decline')),
+        h('button.btn.sm', { onclick: decide(item, 'approve') }, t('Approve'))))));
   }
   function bookingQueue(list, onDone) {
     return list.map(b => h('div.li', h('div.grow', h('b', b.customer + ' · ' + b.service_name), h('div.small.muted', FX.fmtDT(b.starts_at)), b.note ? h('div.small', '“' + b.note + '”') : null),
@@ -273,8 +291,9 @@
         h('span.dot2', ok ? '✓' : ''), h('div.grow', h('b', t(title)), h('div', h('small', t(sub)))), h('span', em))));
   }
   R[''] = async function () {
-    const [[pend, recent], ins, bk] = await Promise.all([queueData(), api('b/' + code() + '/insights/?days=30'), S.biz.bookings_enabled ? api('b/' + code() + '/bookings/?status=open') : []]);
-    S.pending = pend.length;
+    const [[pend, recent], ins, bk, redemptions] = await Promise.all([queueData(), api('b/' + code() + '/insights/?days=30'), S.biz.bookings_enabled ? api('b/' + code() + '/bookings/?status=open') : [], api('b/' + code() + '/redemptions/')]);
+    S.redemptionPending = redemptions.length;
+    S.pending = pend.length + redemptions.length;
     const k = ins.kpis, reqs = bk.filter(b => b.status === 'requested'), todays = bk.filter(b => b.status === 'confirmed' && new Date(b.starts_at).toDateString() === new Date().toDateString());
     return h('div.stack.l', subBanner(),
       h('div.hd', h('div', h('h1', S.biz.name), h('p.muted', t('What needs you right now'))), h('div.row', h('a.btn.ghost', { href: '#/counter' }, t('Counter code')))),
@@ -282,6 +301,7 @@
         ['👥', 'Customers', '#/customers'], ['🎁', 'Rewards', '#/rewards'], ['🎡', 'Spin & Win', '#/spin'], ['📣', 'Offers', '#/campaigns'], ['📊', 'Insights', '#/insights'], ['🖨️', 'QR card', '#/shop'], ['💰', 'Refer & Earn', '#/refer'], ['🔔', 'Alerts', FX.inbox, S.unread || null]]),
       h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null),
         pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')),
+      redemptionQueue(redemptions, refresh),
       reqs.length || todays.length ? h('div.card', h('h3', t('Bookings')), bookingQueue(reqs.concat(todays), refresh)) : null,
       redeemBox(), setupCard(k),
       k.rating_count || k.customers ? h('div.g4', kpi('Customers', k.customers), kpi('Active this month', k.active_30d), kpi('Come back rate', k.repeat_rate + '%', t('customers with 2+ visits')), kpi('Visits in 30 days', k.visits_in_period, t('{n}% from returning customers', { n: k.returning_share }))) : null,
@@ -292,9 +312,10 @@
   };
   /* staff: same queue, nothing else */
   FX.routes.staff[''] = async function () {
-    const [pend] = await queueData(); S.pending = pend.length;
-    const followRequests = await socialFollowRequests();
-    return h('div.stack.l', h('h1', S.biz ? S.biz.name : ''), h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null), pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')), followRequests, redeemBox());
+    const [[pend], followRequests, redemptions] = await Promise.all([queueData(), socialFollowRequests(), api('b/' + code() + '/redemptions/')]);
+    S.redemptionPending = redemptions.length;
+    S.pending = pend.length + redemptions.length;
+    return h('div.stack.l', h('h1', S.biz ? S.biz.name : ''), h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null), pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')), redemptionQueue(redemptions, refresh), followRequests, redeemBox());
   };
 
   /* ---------- Customers CRM ---------- */

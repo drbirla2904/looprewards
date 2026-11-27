@@ -30,7 +30,7 @@ CATEGORY_THEMES = {
 }
 
 
-ASSET_VERSION = "2.4.30"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
+ASSET_VERSION = "2.4.51"  # bump on every frontend release: busts the service-worker + browser cache for /static/app/*
 
 
 def shell(request, code=None):

@@ -16,7 +16,7 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from .models import (AuditLog, Booking, CustomerProfile, Feedback, Program, PurchaseEntry, RewardGrant,
-                     TaskProgress)
+                     RewardRedemptionRequest, TaskProgress)
 from .notify import push
 
 SEGMENTS = ("never", "new", "regular", "at_risk", "lapsed")
@@ -299,16 +299,25 @@ def shop_state(profile):
                           "rewards": [{"title": r.title, "type": r.type, "value": str(r.value)} for r in t.rewards.all()]})
     best = max((t for t in tasks if t["rewards"]), key=lambda t: t["pct"], default=None)
     grants = list(profile.grants.select_related("reward").order_by("expires_at"))
+    requests = RewardRedemptionRequest.objects.filter(grant__in=grants).order_by("-requested_at", "-id")
+    latest_request = {}
+    for request in requests:
+        latest_request.setdefault(request.grant_id, request)
     active = [g for g in grants if g.status == "active" and g.expires_at > now]
     return {
         "visits": len(days), "last_visit": days[-1].isoformat() if days else None,
         "tier": tier_info(biz, len(days)), "streak": streak, "streak_this_week": this_week,
         "tasks": tasks, "best": best,
-        "rewards": [{"title": g.reward.title, "type": g.reward.type, "value": str(g.reward.value),
-                     "terms": g.reward.terms, "code": g.code, "status": g.status, "expires_at": g.expires_at,
+        "rewards": [{"id": g.id, "title": g.reward.title, "type": g.reward.type, "value": str(g.reward.value),
+                     "terms": g.reward.terms, "code": g.code,
+                     "status": "expired" if g.status == "active" and g.expires_at <= now else g.status,
+                     "expires_at": g.expires_at,
                      "trigger": g.reward.trigger, "item_name": g.reward.item_name,
                      "original_price": str(g.reward.original_price), "offer_price": str(g.reward.offer_price),
-                     "image": g.reward.image.url if g.reward.image else ""} for g in grants],
+                     "image": g.reward.image.url if g.reward.image else "",
+                     "redemption_request_status": latest_request[g.id].status if g.id in latest_request else "",
+                     "redemption_requested_at": latest_request[g.id].requested_at if g.id in latest_request else None}
+                    for g in grants],
         "active_rewards": len(active), "next_expiry": active[0].expires_at if active else None,
         "boosts_now": [boost_dict(b) for b in active_boosts(biz)],
     }

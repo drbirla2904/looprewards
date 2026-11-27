@@ -16,7 +16,8 @@ from rest_framework.response import Response
 
 from . import blueprints, engage, services
 from .models import (AuditLog, Booking, Boost, Business, CustomerProfile, Feedback, PurchaseEntry, Reward,
-                     RewardGrant, Service, ShopOffer, ShopOfferItem, SocialFollowClaim, can_manage)
+                     RewardGrant, RewardRedemptionRequest, Service, ShopOffer, ShopOfferItem, SocialFollowClaim,
+                     can_manage)
 from .notify import announce_shop_customers, push
 from .serializers import (BoostSerializer, BookingSerializer, FeedbackSerializer, ServiceSerializer,
                           ShopOfferSerializer)
@@ -121,6 +122,91 @@ def customer_shop(request, code):
                          else social_reward.title if social_reward else ""),
     } if follow_claim else None)
     return Response(st)
+
+
+@api_view(["POST", "DELETE"])
+@transaction.atomic
+def reward_redemption_request(request, grant_id):
+    user = _customer(request)
+    grant = get_object_or_404(
+        RewardGrant.objects.select_for_update().select_related("profile__business", "reward"),
+        pk=grant_id, profile__user=user,
+    )
+    if request.method == "DELETE":
+        redemption = get_object_or_404(
+            RewardRedemptionRequest.objects.select_for_update(),
+            grant=grant, status="pending",
+        )
+        redemption.status = "cancelled"
+        redemption.reviewed_at = timezone.now()
+        redemption.save(update_fields=["status", "reviewed_at"])
+        return Response({"status": redemption.status})
+
+    biz = grant.profile.business
+    now = timezone.now()
+    if grant.profile.status != "active" or not biz.is_live:
+        raise ValidationError("This shop is not accepting reward requests right now.")
+    if grant.status != "active" or grant.expires_at <= now:
+        raise ValidationError("This reward is no longer available.")
+    redemption, created = RewardRedemptionRequest.objects.get_or_create(grant=grant, status="pending")
+    if created:
+        name = user.first_name or "A customer"
+        for manager in _managers(biz):
+            push(manager, f"{name} requested {grant.reward.title} at {biz.name}.", link="/app/")
+    return Response({"id": redemption.pk, "status": redemption.status}, status=201 if created else 200)
+
+
+@api_view(["GET"])
+def reward_redemption_requests(request, code):
+    biz = _mgr_biz(request, code)
+    pending = RewardRedemptionRequest.objects.filter(
+        grant__profile__business=biz, status="pending", grant__status="active",
+        grant__expires_at__gt=timezone.now(),
+    ).select_related("grant__profile__user", "grant__reward").order_by("requested_at", "id")
+    return Response([{
+        "id": item.pk, "customer": item.grant.profile.user.first_name or "Customer",
+        "mobile_last4": item.grant.profile.user.username[-4:], "reward": item.grant.reward.title,
+        "item_name": item.grant.reward.item_name, "terms": item.grant.reward.terms,
+        "expires_at": item.grant.expires_at, "requested_at": item.requested_at,
+    } for item in pending])
+
+
+@api_view(["POST"])
+@transaction.atomic
+def reward_redemption_review(request, code, pk):
+    biz = _mgr_biz(request, code)
+    action = request.data.get("action")
+    if action not in ("approve", "decline"):
+        raise ValidationError("Choose approve or decline.")
+    existing = get_object_or_404(
+        RewardRedemptionRequest.objects.select_related("grant"),
+        pk=pk, grant__profile__business=biz,
+    )
+    grant = get_object_or_404(
+        RewardGrant.objects.select_for_update().select_related("profile__user", "profile__business", "reward"),
+        pk=existing.grant_id, profile__business=biz,
+    )
+    redemption = get_object_or_404(
+        RewardRedemptionRequest.objects.select_for_update(),
+        pk=pk, grant=grant,
+    )
+    if redemption.status != "pending":
+        raise ValidationError("This redemption request has already been reviewed.")
+    now = timezone.now()
+    if action == "approve":
+        if grant.status != "active" or grant.expires_at <= now:
+            raise ValidationError("This reward is no longer available.")
+        grant.status, grant.redeemed_at = "used", now
+        grant.save(update_fields=["status", "redeemed_at"])
+        redemption.status = "approved"
+        message = f"{biz.name} approved your redemption of {grant.reward.title}."
+    else:
+        redemption.status = "declined"
+        message = f"{biz.name} declined your redemption request for {grant.reward.title}. The reward is still available."
+    redemption.reviewed_at, redemption.reviewed_by = now, request.user
+    redemption.save(update_fields=["status", "reviewed_at", "reviewed_by"])
+    push(grant.profile.user, message, link=f"/b/{biz.shop_code}/?tab=rewards")
+    return Response({"status": redemption.status})
 
 
 @api_view(["POST"])

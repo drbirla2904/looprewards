@@ -264,14 +264,14 @@ def review(request, pk):
 @api_view(["POST"])
 def redeem(request):
     _mgr_only(request.user)
-    g = services.redeem(request.data.get("code", ""), request.user)
+    g = services.redeem(request.data.get("code", ""), request.data.get("shop_code", ""), request.user)
     return Response({"status": g.status, "reward": g.reward.title})
 
 
 @api_view(["POST"])
 def redeem_lookup(request):
     _mgr_only(request.user)
-    return Response(services.lookup_grant(request.data.get("code", ""), request.user))
+    return Response(services.lookup_grant(request.data.get("code", ""), request.data.get("shop_code", ""), request.user))
 
 
 @api_view(["GET"])

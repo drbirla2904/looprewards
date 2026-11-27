@@ -43,8 +43,8 @@ class FlowTest(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=cust_token)
         reward = self.client.get("/api/me/shops/").data[0]["rewards"][0]
         self.client.credentials(HTTP_AUTHORIZATION=owner_token)
-        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": reward["code"]}).status_code, 200)
-        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": reward["code"]}).status_code, 400)
+        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": reward["code"], "shop_code": code}).status_code, 200)
+        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": reward["code"], "shop_code": code}).status_code, 400)
 
     def test_customer_can_update_profile_and_change_password(self):
         user = User.objects.create_user(
@@ -258,7 +258,7 @@ class PurchaseUndoTest(APITestCase):
         self.client.force_authenticate(user=self.owner)
         self.client.post(f"/api/entries/{self.entry.pk}/review/", {"action": "approve"}, format="json")
         grant = self.profile.grants.get()
-        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": grant.code}, format="json").status_code, 200)
+        self.assertEqual(self.client.post("/api/rewards/redeem/", {"code": grant.code, "shop_code": self.business.shop_code}, format="json").status_code, 200)
 
         undone = self.client.post(f"/api/entries/{self.entry.pk}/reverse/", format="json")
         self.assertEqual(undone.status_code, 400)
