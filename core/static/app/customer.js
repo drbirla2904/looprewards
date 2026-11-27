@@ -42,13 +42,13 @@
     const code = inp({ ph: 'Shop code', maxlength: 12, 'aria-label': t('Shop code') });
     const search = inp({ ph: 'Search shop name or area', maxlength: 120, 'aria-label': t('Search shops') });
     const discoverBox = h('div.g2');
-    let location = null;
+    let userLoc = null;
     const discover = async () => {
       discoverBox.replaceChildren(h('div.card.muted', t('Finding shops...')));
       try {
         const params = new URLSearchParams();
         if (search.value.trim()) params.set('q', search.value.trim());
-        if (location) { params.set('lat', location.lat); params.set('lng', location.lng); }
+        if (userLoc) { params.set('lat', userLoc.lat); params.set('lng', userLoc.lng); }
         const r = await api('shops/discover/?' + params.toString());
         discoverBox.replaceChildren(...(r.shops.length ? r.shops.map(s => h('a.shopcard', {
           href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color)
@@ -70,7 +70,7 @@
     const nearbyBtn = h('button.btn.ghost', { onclick: () => {
       if (!navigator.geolocation) return toast(t('Location is not supported on this device.'));
       navigator.geolocation.getCurrentPosition(pos => {
-        location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         discover();
       }, () => toast(t('Location permission was denied. Search by name instead.')), {
         enableHighAccuracy: false, timeout: 10000, maximumAge: 300000
