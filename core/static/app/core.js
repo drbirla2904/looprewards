@@ -130,8 +130,10 @@
 
   /* ---------------- overlays ---------------- */
   function toast(msg, bad, action) {
-    const el = h('div.toast' + (bad ? '.bad' : ''), { role: bad ? 'alert' : 'status' }, h('span', msg),
-      action ? h('button', { onclick: () => { el.remove(); action.fn(); } }, action.label) : null);
+    const el = h('div.toast' + (bad ? '.bad' : ''), { role: bad ? 'alert' : 'status' },
+      h('span.toast-mark', { 'aria-hidden': 'true' }, bad ? '!' : '✓'),
+      h('span.toast-message', msg),
+      action ? h('button.toast-action', { onclick: () => { el.remove(); action.fn(); } }, action.label) : null);
     $('#toasts').appendChild(el);
     setTimeout(() => el.remove(), action ? 6500 : 4200);
     return el;
@@ -460,22 +462,57 @@
     } else location.href = link;
   };
   FX.inbox = async function () {
-    const list = h('div.stack.s', h('div.skel.block'));
+    const list = h('div.notif-list', h('div.skel.block'));
     const all = h('button.btn.ghost.sm', { hidden: true }, t('Mark all read'));
-    const m = modal(t('Notifications'), h('div.stack.s', h('div.row.between', h('small.muted', t('Tap a notification to open it.')), all), list));
+    const summary = h('p.small.muted', t('Tap a notification to open it.'));
+    const m = modal(t('Notifications'), h('div.stack.notification-panel',
+      h('div.notification-toolbar', summary, all), list), { cls: 'notifications' });
     const dec = () => { S.unread = Math.max(0, (S.unread || 0) - 1); drawNav(); };
     try {
       const items = await api('notifications/');
+      const unreadCount = items.filter(n => !n.read).length;
+      summary.textContent = unreadCount
+        ? t('{n} unread notification(s)', { n: unreadCount })
+        : t('You’re all caught up.');
+      const kindFor = n => {
+        const text = String(n.text || '').toLowerCase();
+        if (/reward|redeem|coupon/.test(text)) return 'gift';
+        if (/booking|appointment/.test(text)) return 'cal';
+        if (/purchase|stamp|approval|approved/.test(text)) return 'check';
+        return 'bell';
+      };
       const rowFor = n => {
-        const row = h('button.notif' + (n.read ? '' : '.unread'), { type: 'button', 'aria-label': FX.tr(n.text), onclick: () => {
-          if (!n.read) { n.read = true; row.classList.remove('unread'); api('notifications/read/', 'POST', { ids: [n.id] }).catch(() => {}); dec(); }
+        const row = h('button.notif' + (n.read ? '' : '.unread'), { type: 'button', 'aria-label': FX.tr(n.text), onclick: async () => {
+          if (!n.read) {
+            try {
+              await api('notifications/read/', 'POST', { ids: [n.id] });
+              n.read = true;
+              row.classList.remove('unread');
+              dec();
+              summary.textContent = S.unread ? t('{n} unread notification(s)', { n: S.unread }) : t('You’re all caught up.');
+              all.hidden = !items.some(x => !x.read);
+            } catch (e) {
+              toast(e.message, true);
+              return;
+            }
+          }
           if (n.link) { m.close(); FX.openLink(n.link); }
-        } }, h('span.nd'), h('div.grow', h('p', FX.tr(n.text)), h('small.muted', fmtDT(n.created_at))), n.link ? h('span.go', { 'aria-hidden': 'true' }, '›') : null);
+        } }, h('span.notif-icon.' + kindFor(n), ico(kindFor(n))),
+        h('span.notif-copy', h('span.notif-text', FX.tr(n.text)), h('span.notif-time', fmtDT(n.created_at))),
+        n.link ? h('span.go', { 'aria-hidden': 'true' }, '›') : null);
         return row;
       };
-      list.replaceChildren(...(items.length ? items.map(rowFor) : [empty('No notifications yet')]));
+      list.replaceChildren(...(items.length ? items.map(rowFor) : [empty('No notifications yet', 'New updates for your shop will appear here.')]));
       all.hidden = !items.some(n => !n.read);
-      all.onclick = async () => { await api('notifications/read/', 'POST', {}); S.unread = 0; drawNav(); list.querySelectorAll('.unread').forEach(x => x.classList.remove('unread')); all.hidden = true; };
+      all.onclick = e => busy(e.target, async () => {
+        await api('notifications/read/', 'POST', {});
+        items.forEach(n => { n.read = true; });
+        S.unread = 0;
+        drawNav();
+        list.querySelectorAll('.unread').forEach(x => x.classList.remove('unread'));
+        all.hidden = true;
+        summary.textContent = t('You’re all caught up.');
+      });
     } catch (e) { list.replaceChildren(h('p.err', e.message)); }
     return m;
   };

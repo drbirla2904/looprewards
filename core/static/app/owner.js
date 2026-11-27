@@ -192,14 +192,18 @@
         h('button.btn.ghost', { onclick: b => review('reject', b, () => m.close()) }, t('Decline')),
         h('button.btn', { onclick: b => review('approve', b, () => m.close()) }, t('Approve')))), { style: 'width:min(92vw,640px);max-height:85vh' });
     };
-    return h('div.li', FX.avatar(e.customer, e.customer_image_url), h('div.grow', h('b', e.customer || t('Customer')), h('div.small.muted', e.task_title + ' · ' + typeVal(e) + ' · ' + FX.ago(e.created_at)),
-      e.far ? h('div', pill(t('Far from shop ({m} m)', { m: Math.round(e.distance_m || 0) }), 'warn')) : null,
-      e.bill_url ? h('button.btn.ghost.sm', { type: 'button', onclick: showBill }, t('View bill')) : null),
+    return h('div.approval-card.purchase-approval',
+      FX.avatar(e.customer, e.customer_image_url),
+      h('div.approval-copy',
+        h('div.approval-heading', h('b', e.customer || t('Customer')), pill(t('Purchase review'), 'info')),
+        h('div.approval-details', h('span', e.task_title), h('span', typeVal(e)), h('span', FX.ago(e.created_at))),
+        e.far ? pill(t('Far from shop ({m} m)', { m: Math.round(e.distance_m || 0) }), 'warn') : null,
+        e.bill_url ? h('button.btn.ghost.sm.bill-action', { type: 'button', onclick: showBill }, t('View bill')) : null),
       h('div.approval-actions', h('button.btn.ghost.sm', { onclick: act('reject') }, t('Decline')),
         h('button.btn.sm', { onclick: act('approve') }, t('Approve'))));
   }
   /* two steps so the wrong customer or reward is never redeemed: look up, check, then confirm */
-  function redeemBox() {
+  function redeemBox(pendingRequests) {
     const pre = sessionStorage.fx_redeem || ''; delete sessionStorage.fx_redeem;  // set when staff scan a customer's reward QR
     const c = inp({ ph: 'Reward code', maxlength: 12, autocapitalize: 'characters', autocomplete: 'off', value: pre, 'aria-label': t('Reward code') });
     const out = h('div', { 'aria-live': 'polite' });
@@ -219,8 +223,12 @@
     c.addEventListener('keydown', e => { if (e.key === 'Enter') look(); });
     c.addEventListener('input', () => { c.value = c.value.toUpperCase(); if (out.firstChild) out.replaceChildren(); });
     if (pre) look();
-    return h('div.card.stack#redeem', h('h3', t('Redeem a reward')), h('p.small.muted', t('Type the code, or scan the QR on the customer\'s reward pass with your phone camera.')),
-      h('div.row', c, h('button.btn', { onclick: look }, t('Check'))), out);
+    return h('div.card.stack#redeem',
+      h('div.redeem-head', h('div', h('h3', t('Redeem a reward')), h('p.small.muted', t('Review requests or check a reward code at the counter.')))),
+      pendingRequests && pendingRequests.length ? redemptionQueue(pendingRequests, refresh) : null,
+      h('div.redeem-code-section', h('h4', t('Check a reward code')),
+        h('p.small.muted', t('Type the code, or scan the QR on the customer\'s reward pass with your phone camera.')),
+        h('div.row', c, h('button.btn', { onclick: look }, t('Check'))), out));
   }
   async function queueData() {
     const [pend, recent] = await Promise.all([api('owner/pending/'), api('owner/recent/')]);
@@ -233,16 +241,21 @@
       toast(t(action === 'approve' ? 'Redemption approved: {r}' : 'Redemption declined: {r}', { r: item.reward }));
       onDone();
     });
-    return h('div.card.stack', h('div.hd', h('h3', t('Reward redemption requests')), pill(list.length, 'warn')),
-      list.map(item => h('div.li', h('div.grow.stack.s',
-        h('b', item.customer + ' · ' + item.reward),
-        item.item_name ? h('div.small', item.item_name) : null,
-        h('div.small.muted', '…' + item.mobile_last4 + ' · ' + FX.ago(item.requested_at)),
-        item.terms ? h('div.small.muted', item.terms) : null,
-        h('small', FX.until(item.expires_at))),
-      h('div.approval-actions',
-        h('button.btn.ghost.sm', { onclick: decide(item, 'decline') }, t('Decline')),
-        h('button.btn.sm', { onclick: decide(item, 'approve') }, t('Approve'))))));
+    return h('div.redemption-approval-section',
+      h('div.redemption-section-heading', h('div', h('h4', t('Redemption requests')), h('p.small.muted', t('Approve only after checking the reward with the customer.'))),
+        pill(list.length, 'warn')),
+      h('div.approval-list', list.map(item => h('div.approval-card.redemption-approval',
+        h('span.approval-symbol', { 'aria-hidden': 'true' }, '🎁'),
+        h('div.approval-copy',
+          h('div.approval-heading', h('b', item.customer), pill(t('Awaiting review'), 'warn')),
+          h('div.approval-reward', item.reward),
+          item.item_name ? h('div.small', item.item_name) : null,
+          h('div.approval-details', h('span', '…' + item.mobile_last4), h('span', FX.ago(item.requested_at))),
+          item.terms ? h('div.small.muted', item.terms) : null,
+          h('small.muted', FX.until(item.expires_at))),
+        h('div.approval-actions',
+          h('button.btn.ghost.sm', { onclick: decide(item, 'decline') }, t('Decline')),
+          h('button.btn.sm', { onclick: decide(item, 'approve') }, t('Approve')))))));
   }
   function bookingQueue(list, onDone) {
     return list.map(b => h('div.li', h('div.grow', h('b', b.customer + ' · ' + b.service_name), h('div.small.muted', FX.fmtDT(b.starts_at)), b.note ? h('div.small', '“' + b.note + '”') : null),
@@ -299,11 +312,10 @@
       h('div.hd', h('div', h('h1', S.biz.name), h('p.muted', t('What needs you right now'))), h('div.row', h('a.btn.ghost', { href: '#/counter' }, t('Counter code')))),
       FX.tiles([['🎟️', 'Redeem', () => { const r = document.getElementById('redeem'); if (r) { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); const i = r.querySelector('input'); if (i) i.focus(); } }],
         ['👥', 'Customers', '#/customers'], ['🎁', 'Rewards', '#/rewards'], ['🎡', 'Spin & Win', '#/spin'], ['📣', 'Offers', '#/campaigns'], ['📊', 'Insights', '#/insights'], ['🖨️', 'QR card', '#/shop'], ['💰', 'Refer & Earn', '#/refer'], ['🔔', 'Alerts', FX.inbox, S.unread || null]]),
-      h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null),
-        pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')),
-      redemptionQueue(redemptions, refresh),
+      h('div.card.stack.approval-panel', h('div.approval-panel-heading', h('div', h('h3', t('Purchase approvals')), h('p.small.muted', t('Check each visit and approve or decline it.'))), pend.length ? pill(pend.length, 'warn') : null),
+        pend.length ? h('div.approval-list', pend.map(e => queueRow(e, refresh))) : empty('All caught up', 'New purchases from customers show up here.')),
       reqs.length || todays.length ? h('div.card', h('h3', t('Bookings')), bookingQueue(reqs.concat(todays), refresh)) : null,
-      redeemBox(), setupCard(k),
+      redeemBox(redemptions), setupCard(k),
       k.rating_count || k.customers ? h('div.g4', kpi('Customers', k.customers), kpi('Active this month', k.active_30d), kpi('Come back rate', k.repeat_rate + '%', t('customers with 2+ visits')), kpi('Visits in 30 days', k.visits_in_period, t('{n}% from returning customers', { n: k.returning_share }))) : null,
       k.customers ? h('div.card', h('h3', t('Visits, last 30 days')), FX.barChart(ins.series, 'visits')) : h('div.card.stack', h('h3', t('Get your first customers')), h('p.muted', t('Print your QR code and place it at the counter.')), h('a.btn', { href: '#/shop' }, t('Get my QR code'))),
       ins.tips.length ? h('div.stack', ins.tips.map(x => { const [msg, label, fn] = TIPS[x.key](x); return h('div.card.row', h('span', { style: 'font-size:calc(22px * var(--font-scale, .8))' }, '💡'), h('p.grow', msg), h('button.btn.soft.sm', { onclick: fn }, label)); })) : null,
@@ -315,7 +327,10 @@
     const [[pend], followRequests, redemptions] = await Promise.all([queueData(), socialFollowRequests(), api('b/' + code() + '/redemptions/')]);
     S.redemptionPending = redemptions.length;
     S.pending = pend.length + redemptions.length;
-    return h('div.stack.l', h('h1', S.biz ? S.biz.name : ''), h('div.card', h('div.hd', h('h3', t('Waiting for approval')), pend.length ? pill(pend.length, 'warn') : null), pend.length ? pend.map(e => queueRow(e, refresh)) : empty('All caught up', 'New purchases from customers show up here.')), redemptionQueue(redemptions, refresh), followRequests, redeemBox());
+    return h('div.stack.l', h('h1', S.biz ? S.biz.name : ''),
+      h('div.card.stack.approval-panel', h('div.approval-panel-heading', h('div', h('h3', t('Purchase approvals')), h('p.small.muted', t('Check each visit and approve or decline it.'))), pend.length ? pill(pend.length, 'warn') : null),
+        pend.length ? h('div.approval-list', pend.map(e => queueRow(e, refresh))) : empty('All caught up', 'New purchases from customers show up here.')),
+      followRequests, redeemBox(redemptions));
   };
 
   /* ---------- Customers CRM ---------- */

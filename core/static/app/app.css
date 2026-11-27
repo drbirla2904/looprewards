@@ -202,10 +202,41 @@ dialog>.in>.hd{position:sticky;top:-16px;z-index:2;padding:4px 0 8px;background:
 dialog.drawer{margin:auto 12px auto auto;height:auto;max-height:min(72dvh,560px);width:min(92vw,440px);border-radius:var(--r3)}
 dialog.drawer>.in{max-height:inherit;height:auto}
 @media(max-width:560px){dialog:not(.drawer):not(.sheet){margin:auto;width:min(94vw,480px);max-width:calc(100vw - 24px);border-radius:var(--r3)}dialog.drawer{margin:auto;width:min(94vw,440px)}}
+dialog.notifications{width:min(94vw,520px);max-height:min(82dvh,720px)}
+dialog.notifications>.in{padding:20px;gap:18px}
+dialog.notifications>.in>.hd{align-items:center;margin:0;padding:0 0 14px;border-bottom:1px solid var(--line)}
+.notification-panel{gap:14px}
+.notification-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 0}
+.notification-toolbar p{line-height:1.4}
+.notification-toolbar .btn{flex:none}
+.notif-list{display:grid;gap:10px}
+.notif{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:74px;padding:14px;border:1px solid #e8eaf0;border-radius:16px;background:#fff;color:var(--ink);text-align:left;cursor:pointer;transition:background .16s,border-color .16s,box-shadow .16s,transform .16s}
+.notif:hover{background:#f8fafc;border-color:#cdd5e1;box-shadow:0 5px 16px #17251d0c;transform:translateY(-1px)}
+.notif.unread{background:#f4f8ff;border-color:#d6e2fc}
+.notif-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:#eef2f8;color:#526174}
+.notif-icon svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8}
+.notif-icon.gift{background:#fff3dc;color:#a76500}
+.notif-icon.check{background:#e8f6ef;color:#187449}
+.notif-icon.cal{background:#edf1ff;color:#4e60b7}
+.notif-copy{display:grid;gap:5px;min-width:0}
+.notif-text{font-size:calc(14px * var(--font-scale, 1));font-weight:550;line-height:1.45;overflow-wrap:anywhere}
+.notif-time{font-size:calc(12px * var(--font-scale, 1));color:var(--mute)}
+.notif .go{font-size:22px;line-height:1;color:#9aa3b2}
+@media(max-width:560px){
+  dialog.notifications>.in{padding:16px;gap:14px}
+  .notif{grid-template-columns:38px minmax(0,1fr) auto;gap:10px;padding:12px;min-height:68px}
+  .notif-icon{width:38px;height:38px;border-radius:12px}
+  .notification-toolbar{align-items:flex-start}
+}
 .toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabs) + 14px + env(safe-area-inset-bottom));z-index:99;display:grid;gap:8px;width:min(92vw,420px)}
 @media(min-width:861px){.toasts{bottom:24px}}
-.toast{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:12px 16px;border-radius:var(--r2);background:var(--ink);color:#fff;box-shadow:0 8px 30px #0004;animation:rise .25s ease}
-.toast.bad{background:#8c241d}.toast button{border:0;background:#ffffff26;color:#fff;border-radius:6px;padding:5px 10px;cursor:pointer;font-weight:600}
+.toast{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:11px;padding:13px 15px;border:1px solid #d5e9dd;border-radius:16px;background:#f2fbf5;color:#164b31;box-shadow:0 12px 34px #14271c26;animation:rise .25s ease}
+.toast-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#d9f1e2;color:#17663e;font-weight:800}
+.toast-message{font-size:calc(13px * var(--font-scale, 1));font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.toast.bad{border-color:#f0d2cf;background:#fff5f4;color:#812b25}
+.toast.bad .toast-mark{background:#fbe2df;color:#a63229}
+.toast .toast-action{min-height:36px;padding:6px 11px;border:0;border-radius:10px;background:#176b4a;color:#fff;cursor:pointer;font-size:calc(12px * var(--font-scale, 1));font-weight:700}
+.toast.bad .toast-action{background:#8c302a}
 @keyframes rise{from{transform:translateY(10px);opacity:0}}
 .spin{width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--brand);animation:sp .7s linear infinite;margin:40px auto}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -446,11 +477,6 @@ canvas.confetti{position:fixed;inset:0;width:100%;height:100%;pointer-events:non
 @media(prefers-reduced-motion:reduce){.enter>*,.skel,.pill.glow{animation:none!important}canvas.confetti{display:none}}
 
 /* notifications you can tap */
-.notif{display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;padding:12px;border-radius:14px;border:1px solid var(--line);background:#fff;cursor:pointer;color:inherit;transition:background .15s,border-color .15s}
-.notif:hover{background:var(--brand-s);border-color:var(--brand)}
-.notif .nd{width:10px;height:10px;border-radius:50%;margin-top:6px;flex:none;background:transparent}
-.notif.unread{background:#f3f8ff;border-color:#cfdcff}.notif.unread .nd{background:var(--blue,#3b5bdb)}
-.notif p{margin:0 0 2px}.notif .go{font-size:calc(24px * var(--font-scale, .8));line-height:1;color:var(--mute);align-self:center}
 
 /* =====================================================================================================
    v2.2 "UPI-app" design language: violet brand, Inter type scale, big rounded cards, solid pill buttons,
@@ -606,3 +632,51 @@ body{font-size:calc(15px * var(--font-scale,1))}
 .install-prompt-action{padding:7px 12px;background:var(--brand);color:#fff;font-weight:650}
 .install-prompt-close{width:34px;flex:none;background:transparent;color:var(--mute);font-size:22px}
 @media(min-width:861px){.install-prompt{display:none!important}}
+
+/* Approval and redeem panels */
+.approval-panel{gap:16px}
+.approval-panel-heading,.redemption-section-heading,.redeem-head{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.approval-panel-heading>div,.redemption-section-heading>div,.redeem-head>div{display:grid;gap:5px;min-width:0}
+.approval-list{display:grid;gap:11px}
+.approval-card{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:14px;padding:15px;border:1px solid #e7eaf0;border-radius:16px;background:linear-gradient(145deg,#fff,#fbfcfe)}
+.approval-copy{display:grid;gap:7px;min-width:0}
+.approval-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.approval-heading>b{font-size:calc(14px * var(--font-scale, 1));line-height:1.35}
+.approval-details{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;color:var(--mute);font-size:calc(12px * var(--font-scale, 1));line-height:1.45}
+.approval-details>span+span::before{content:"·";margin-right:12px;color:#a6adba}
+.approval-copy>.pill{justify-self:start}
+.approval-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:184px}
+.approval-actions .btn{width:100%;min-height:40px;padding:6px 12px}
+.bill-action{justify-self:start;margin-top:2px}
+.redemption-approval-section{display:grid;gap:14px;padding:17px;border:1px solid #ece8dc;border-radius:18px;background:linear-gradient(145deg,#fffdf7,#fff)}
+.redemption-section-heading h4,.redeem-code-section h4{font-size:calc(15px * var(--font-scale, 1))}
+.redemption-approval{border-color:#eee7d7;background:#fff}
+.approval-symbol{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:#fff3dc;font-size:20px}
+.approval-reward{color:var(--ink2);font-size:calc(13px * var(--font-scale, 1));font-weight:650}
+.redeem-head{align-items:flex-start}
+.redeem-head h3{margin:0}
+.redeem-code-section{display:grid;gap:10px;padding-top:16px;border-top:1px solid var(--line)}
+.redeem-code-section>.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+.redeem-code-section>.row .btn{min-width:96px}
+.redeem-code-section [aria-live]{min-width:0}
+.approval-panel .empty{margin:0}
+@media(max-width:700px){
+  .approval-card{grid-template-columns:40px minmax(0,1fr);gap:10px 12px;padding:13px}
+  .approval-card>.avatar,.approval-symbol{grid-column:1;grid-row:1;align-self:start}
+  .approval-card>.approval-copy{grid-column:2;grid-row:1}
+  .approval-card>.approval-actions{grid-column:1/-1;grid-row:2;min-width:0}
+}
+@media(max-width:420px){
+  .approval-panel-heading,.redemption-section-heading{align-items:flex-start}
+  .approval-card{gap:10px;padding:12px}
+  .approval-heading{align-items:flex-start}
+  .approval-heading .pill{font-size:11px}
+  .redemption-approval-section{padding:13px;gap:12px}
+  .redeem-code-section>.row{grid-template-columns:minmax(0,1fr) 84px;gap:7px}
+  .redeem-code-section>.row input{min-width:0}
+  .redeem-code-section>.row .btn{min-width:0;padding:4px 8px}
+}
+@media(max-width:560px){
+  .approval-card .approval-actions{display:grid;grid-template-columns:1fr 1fr;align-items:stretch;gap:8px}
+  .approval-card .approval-actions>.btn{width:100%;min-height:40px;padding:6px 8px;font-size:13px}
+}
