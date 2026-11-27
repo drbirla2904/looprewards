@@ -586,24 +586,178 @@
       h('div.row', cur ? h('button.btn.danger', { onclick: e => busy(e.target, async () => { await api('b/' + code() + '/perks/', 'PUT', { [trig]: null }); m.close(); onDone(); }) }, t('Turn off')) : null,
         h('button.btn.grow', { onclick: e => busy(e.target, async () => { await api('b/' + code() + '/perks/', 'PUT', { [trig]: { title: title.value, type: type.value, value: val.value, expiry_days: days.value } }); m.close(); onDone(); }) }, t('Save')))));
   }
-  R.rewards = async function () {
-    const [boosts, perks, act] = await Promise.all([api('b/' + code() + '/boosts/'), api('b/' + code() + '/perks/'), api('b/' + code() + '/reward-activity/').catch(() => ({ rewards: [] }))]);
+  function coinRewardEditor(onDone, reward) {
+    const title = inp({ value: reward ? reward.title : '', maxlength: 120, required: true, ph: 'e.g. Free coffee' });
+    const description = inp({ value: reward ? reward.description : '', maxlength: 240, ph: 'What does the customer receive?' });
+    const cost = inp({ type: 'number', min: '1', max: '10000000', step: '1', required: true, value: reward ? reward.cost : 100 });
+    const m = modal(t(reward ? 'Edit coin reward' : 'Add coin reward'), h('div.stack',
+      field('Shop item or reward', title), field('Item details', description), field('Coin price', cost),
+      h('button.btn', { onclick: e => busy(e.target, async () => {
+        const coinCost = Number(cost.value);
+        const body = { title: title.value.trim(), description: description.value.trim(), cost: coinCost };
+        if (!body.title || !Number.isInteger(coinCost) || coinCost < 1 || coinCost > 10000000) {
+          throw new Error(t('Enter an item name and a whole-number coin price.'));
+        }
+        await api('b/' + code() + '/coin-rewards/' + (reward ? reward.id + '/' : ''), reward ? 'PATCH' : 'POST', body);
+        m.close(); await onDone();
+      }) }, t('Save item'))));
+  }
+  function coinProgramCard(config, redemptions, onDone) {
+    const enabled = h('input', { type: 'checkbox', checked: config.enabled });
+    const rate = inp({ type: 'number', min: '1', max: '100000', value: config.spend_per_coin });
+    const cap = inp({ type: 'number', min: '1', max: '1000000', value: config.daily_cap });
+    const rewards = config.rewards.map(reward => h('div.li.coin-reward-row',
+      h('div.grow.stack.s', h('div.row.wrap', h('b', reward.title), pill(t('{n} coins', { n: reward.cost }), 'info')),
+        reward.description ? h('small.muted', reward.description) : null,
+        reward.redemptions_count ? h('small.muted', t('Has redemption history; hide it instead of deleting.')) : null),
+      h('div.coin-reward-actions',
+      h('button.btn.ghost.sm', { onclick: () => coinRewardEditor(onDone, reward) }, t('Edit')),
+      h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => {
+        await api('b/' + code() + '/coin-rewards/' + reward.id + '/', 'PATCH', { active: !reward.active });
+        await onDone();
+      }) }, t(reward.active ? 'Hide' : 'Show'))),
+      reward.redemptions_count === 0 ? h('button.btn.danger.sm', { onclick: async e => {
+        if (!await confirmBox(t('Delete this coin item permanently? It has no redemption history.'), t('Delete item'), true)) return;
+        await busy(e.target, async () => {
+          await api('b/' + code() + '/coin-rewards/' + reward.id + '/', 'DELETE');
+          toast(t('Coin item deleted.'));
+          await onDone();
+        });
+      } }, t('Delete')) : null));
+    const pending = redemptions.length ? h('div.card.stack',
+      h('div.hd', h('h3', t('Coin redemption requests')), pill(redemptions.length, 'warn')),
+      redemptions.map(item => h('div.li.coin-redemption-row',
+        h('div.grow', h('b', item.customer), h('small.muted', t('{reward} · {coins} coins', { reward: item.reward, coins: item.coins }) + ' · ' + FX.fmtDT(item.requested_at)),
+          h('small.muted', t('Mobile ending in {digits}', { digits: item.mobile_last4 }))),
+        h('div.coin-reward-actions',
+        h('button.btn.sm', { onclick: e => busy(e.target, async () => {
+          await api('b/' + code() + '/coin-redemptions/' + item.id + '/', 'POST', { action: 'approve' }); await onDone();
+        }) }, t('Approve')),
+        h('button.btn.danger.sm', { onclick: e => busy(e.target, async () => {
+          await api('b/' + code() + '/coin-redemptions/' + item.id + '/', 'POST', { action: 'decline' }); await onDone();
+        }) }, t('Decline')))))) : null;
+    return h('div.section', h('div.hd', h('h2', t('Coin program')),
+      enabled.checked ? pill(t('Active'), 'ok') : pill(t('Paused'))),
+      h('div.card.stack',
+        h('div.stack.s', h('h3', t('Earning settings')), h('small.muted', t('Coins are added after a shop approves a purchase.'))),
+        h('div.g3', field('Enable Coin Rewards', enabled), field('Rupees spent per coin earned', rate), field('Daily coin earning cap per customer', cap)),
+        h('div.row.wrap', h('button.btn.sm', { onclick: e => busy(e.target, async () => {
+          await api('b/' + code() + '/coin-program/', 'PUT', { enabled: enabled.checked, spend_per_coin: rate.value, daily_cap: cap.value });
+          await onDone();
+        }) }, t('Save coin settings'))),
+        h('div.hd', h('div', h('h3', t('Shop items')), h('small.muted', t('Customers can redeem these items using coins from this shop.'))),
+          h('button.btn.ghost.sm', { onclick: () => coinRewardEditor(onDone) }, '+ ' + t('Add shop item'))),
+        config.rewards.length ? h('div.stack.s', rewards) : empty('No coin rewards yet', 'Add a reward customers can claim with their coins.')),
+      pending);
+  }
+  function scratchCampaignCard(config, onDone) {
+    const active = h('input', { type: 'checkbox', checked: config.active });
+    const title = inp({ value: config.prize_title, maxlength: 120, ph: 'e.g. Free dessert' });
+    const type = sel([['free_item', 'Free item'], ['percent_off', 'Percent off'], ['flat_off', 'Flat amount off'], ['gift', 'Gift'], ['cashback', 'Cashback'], ['special_offer', 'Special offer'], ['custom', 'Other']], config.prize_type);
+    const value = inp({ type: 'number', min: '0', step: '0.01', value: config.prize_value });
+    const terms = inp({ value: config.prize_terms, maxlength: 500, ph: 'Optional prize terms' });
+    const expiry = inp({ type: 'number', min: '1', max: '365', value: config.expiry_days });
+    const deck = inp({ type: 'number', min: '2', max: '1000', value: config.cards_per_deck });
+    const winners = inp({ type: 'number', min: '1', max: '1000', value: config.winning_cards });
+    return h('div.section', h('div.hd', h('div', h('h2', t('Scratch Cards')), h('p.small.muted', t('Give one card for every approved purchase. Each deck has a fixed number of wins.'))),
+      active.checked ? pill(t('Active'), 'ok') : pill(t('Paused'))),
+      h('div.card.stack', field('Enable Scratch Cards', active), field('Winning prize', title),
+        h('div.g2', field('Prize type', type), field('Value (₹ or %)', value)),
+        field('Prize terms', terms), h('div.g3', field('Cards per deck', deck), field('Winning cards per deck', winners), field('Reward valid (days)', expiry)),
+        h('small.muted', t('{issued} cards issued in the current deck.', { issued: config.cards_issued })),
+        h('button.btn', { onclick: e => busy(e.target, async () => {
+          await api('b/' + code() + '/scratch-campaign/configure/', 'PUT', {
+            active: active.checked, prize_title: title.value.trim(), prize_type: type.value,
+            prize_value: value.value, prize_terms: terms.value, expiry_days: expiry.value,
+            cards_per_deck: deck.value, winning_cards: winners.value,
+          });
+          onDone();
+        }) }, t('Save scratch campaign'))));
+  }
+  R.rewards = async function (args) {
+    const [boosts, perks, act, coins, coinRedemptions, scratch] = await Promise.all([
+      api('b/' + code() + '/boosts/'), api('b/' + code() + '/perks/'),
+      api('b/' + code() + '/reward-activity/').catch(() => ({ rewards: [] })),
+      api('b/' + code() + '/coin-program/'), api('b/' + code() + '/coin-redemptions/'),
+      api('b/' + code() + '/scratch-campaign/'),
+    ]);
+    args = args || [];
+    const section = args[0] || '';
     const followRequests = await socialFollowRequests();
     const stats = {}; act.rewards.forEach(r => { stats[r.id] = r.stats; });
     const biz = S.biz, done = () => FX.render(true);
     const silver = inp({ type: 'number', min: '0', value: biz.tier_silver_visits }), gold = inp({ type: 'number', min: '0', value: biz.tier_gold_visits }), sp = inp({ value: biz.silver_perk, maxlength: 120, ph: 'e.g. Free size upgrade' }), gp = inp({ value: biz.gold_perk, maxlength: 120, ph: 'e.g. Priority service' });
     const perkCard = (trig, label, hint) => h('div.card.stack', h('b', t(label)), perks[trig] ? h('p', '🎁 ' + perks[trig].title) : h('p.muted', t(hint)), h('button.btn.soft.sm', { onclick: () => perkEditor(trig, perks[trig], done) }, t(perks[trig] ? 'Edit' : 'Set up')));
-    return h('div.stack.l', h('div.hd', h('div', h('h1', t('Rewards')), h('p.muted', t('Give customers a reason to come back'))), h('div.row.wrap', h('button.btn.ghost', { onclick: () => blueprintPicker(done) }, t('Use a template')), h('button.btn.ghost', { onclick: () => programBuilder(done) }, '+ ' + t('New program')), h('button.btn', { onclick: () => quickReward(done) }, '⚡ ' + t('Quick add a reward')))),
-      biz.programs.length ? h('div.g2', biz.programs.map(p => programCard(p, done, stats))) : empty('No programs yet', 'Start from a template or build your own.'),
-      h('div.section', h('div.hd', h('h2', t('Boosts')), h('button.btn.soft.sm', { onclick: () => boostEditor(null, done) }, '+ ' + t('Add boost'))), h('p.muted.small', t('Double stamps on slow days or hours bring customers in when you need them.')),
+    const pageHead = (title, subtitle) => h('div.reward-subhead',
+      h('button.btn.ghost.sm', { onclick: () => FX.go('rewards') }, '← ' + t('Back to rewards')),
+      h('div', h('h1', t(title)), h('p.muted', t(subtitle))));
+    const rewardHistory = () => modal(t('Reward History'), h('div.stack.reward-history',
+      h('p.small.muted', t('See how customers are progressing through your stamp rewards.')),
+      act.rewards.length ? act.rewards.map(reward => h('div.card.stack.s',
+        h('div', h('b', reward.title), h('small.muted', reward.program + ' · ' + reward.task)),
+        h('div.g3', kpi('Issued', reward.stats.issued), kpi('Available', reward.stats.available), kpi('Redeemed', reward.stats.redeemed)),
+        reward.customers.length ? h('div.stack.s', reward.customers.slice(0, 5).map(customer =>
+          h('div.li', h('div.grow', h('b', customer.name), h('small.muted', t('{n} issued · {available} available · {redeemed} redeemed', {
+            n: customer.issued, available: customer.available, redeemed: customer.redeemed
+          }))), h('small.muted', customer.last_activity ? FX.fmtDT(customer.last_activity) : t('No activity yet'))))) : null)) :
+        empty('No reward activity yet', 'Customer reward activity will appear here.')));
+    const tiles = [
+      ['Stamp Card', 'Set up stamps and rewards', '🏷️', 'stamps', biz.programs.length ? t('{n} programs', { n: biz.programs.length }) : t('Get started')],
+      ['Coin Reward', 'Earn coins from approved spend', '🪙', 'coins', coins.enabled ? t('Active') : t('Set up')],
+      ['Scratch Card', 'Give a card after each purchase', '🎟️', 'scratch', scratch.active ? t('Active') : t('Set up')],
+      ['Refer & Earn', 'Reward customers for inviting friends', '↗', 'referrals', perks.referral ? t('Active') : t('Set up')],
+      ['Promo QR', 'Share your shop and rewards', '▦', 'qr', t('Open shop QR')],
+    ];
+    const previewItems = [
+      biz.programs.length ? ['Stamp Card', t('{n} programs', { n: biz.programs.length })] : null,
+      coins.enabled ? ['Coin Reward', t('Earn coins from approved spend')] : null,
+      scratch.active ? ['Scratch Card', t('Give a card after each purchase')] : null,
+      perks.referral ? ['Refer & Earn', t('Reward customers for inviting friends')] : null,
+    ].filter(Boolean);
+    const home = () => h('div.stack.l.rewards-home',
+      h('div.reward-home-head', h('div', h('h1', t('Rewards')), h('p.muted', t('Set up rewards for your customers'))),
+        h('button.btn.ghost.sm.reward-history-btn', { onclick: rewardHistory }, '◷ ' + t('Reward History'))),
+      h('div.rewards-grid', tiles.map(([title, subtitle, icon, key, status]) =>
+        h('button.reward-tile', { type: 'button', onclick: () => key === 'qr' ? FX.go('shop') : FX.go('rewards/' + key) },
+          h('span.reward-tile-icon.' + key, { 'aria-hidden': 'true' }, icon),
+          h('b', t(title)), h('small', t(subtitle)), h('span.reward-tile-status', status)))),
+      h('div.reward-more', h('div.section-t', t('More ways to engage')),
+        h('div.reward-more-grid',
+          h('a.reward-more-link', { href: '#/spin' }, h('span', '🎡'), h('span', h('b', t('Spin & Win')), h('small', t('Chance-based shop campaigns'))), '›'),
+          h('a.reward-more-link', { href: '#/campaigns' }, h('span', '🏷'), h('span', h('b', t('Offers')), h('small', t('Public shop-wide offers'))), '›'))),
+      h('div.reward-preview', h('div.reward-preview-head', h('div', h('small', t('Customer Rewards Preview')), h('b', biz.name), h('p.small.muted', t('This is what customers can discover on your shop page.'))), pill(t('Preview'))),
+        previewItems.length ? h('div.reward-preview-items', previewItems.map(([title, detail]) =>
+          h('div.reward-preview-item', h('span', t(title)), h('small', detail)))) :
+          h('p.small.muted', t('Set up a reward to show customers what they can earn.'))));
+    const stampPage = () => h('div.stack.l.reward-detail',
+      pageHead('Stamp Card', 'Set up stamps and rewards'),
+      h('div.row.wrap.reward-actions',
+        h('button.btn.ghost', { onclick: () => blueprintPicker(done) }, t('Use a template')),
+        h('button.btn.ghost', { onclick: () => programBuilder(done) }, '+ ' + t('New program')),
+        h('button.btn', { onclick: () => quickReward(done) }, '⚡ ' + t('Quick add a reward'))),
+      biz.programs.length ? h('div.stack', biz.programs.map(p => programCard(p, done, stats))) : empty('No programs yet', 'Start from a template or build your own.'),
+      h('div.section', h('div.hd', h('div', h('h2', t('Boosts')), h('p.small.muted', t('Double stamps on slow days or hours bring customers in when you need them.'))), h('button.btn.soft.sm', { onclick: () => boostEditor(null, done) }, '+ ' + t('Add boost'))),
         h('div.card', boosts.length ? boosts.map(b => h('div.li', h('div.grow', h('b', b.title + ' (' + b.multiplier + 'x)'), h('div.small.muted', (b.weekdays ? b.weekdays.split(',').map(i => wd(+i)).join(', ') : t('Every day')) + (b.start_time ? ' · ' + b.start_time.slice(0, 5) + '-' + b.end_time.slice(0, 5) : ''))),
           h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => { await api('boosts/' + b.id + '/', 'PATCH', { active: !b.active }); done(); }) }, t(b.active ? 'Pause' : 'Resume')),
           h('button.btn.ghost.sm', { onclick: () => boostEditor(b, done) }, t('Edit')),
           h('button.btn.danger.sm', { onclick: e => busy(e.target, async () => { await api('boosts/' + b.id + '/', 'DELETE'); done(); }) }, t('Delete')))) : empty('No boosts yet'))),
-      followRequests,
-      h('div.section', h('h2', { style: 'margin-bottom:12px' }, t('Welcome, referral and social rewards')), h('div.g2', perkCard('welcome', 'Welcome gift', 'Make new customers feel welcome on their first purchase.'), perkCard('referral', 'Referral reward', 'Reward customers who bring friends.'), perkCard('social', 'Social follow reward', 'Reward customers after staff confirm they follow a social profile.'))),
       h('div.section', h('h2', { style: 'margin-bottom:12px' }, t('Membership tiers')), h('div.card.stack', h('p.muted.small', t('Tiers are based on total visits. Perks are things you honour at the counter.')),
         h('div.g2', field('Silver after (visits)', silver), field('Gold after (visits)', gold)), h('div.g2', field('Silver perk', sp), field('Gold perk', gp)),
         h('button.btn.sm', { style: 'justify-self:start', onclick: e => busy(e.target, async () => { await api('b/' + code() + '/settings/', 'PATCH', { tier_silver_visits: +silver.value, tier_gold_visits: +gold.value, silver_perk: sp.value, gold_perk: gp.value }); await FX.reloadShops(); toast(t('Saved')); }) }, t('Save tiers')))));
+    const referralPage = () => h('div.stack.l.reward-detail',
+      pageHead('Refer & Earn', 'Reward customers for inviting friends'),
+      followRequests,
+      h('div.section', h('h2', { style: 'margin-bottom:12px' }, t('Welcome, referral and social rewards')),
+        h('div.stack', perkCard('welcome', 'Welcome gift', 'Make new customers feel welcome on their first purchase.'),
+          perkCard('referral', 'Referral reward', 'Reward customers who bring friends.'),
+          perkCard('social', 'Social follow reward', 'Reward customers after staff confirm they follow a social profile.'))));
+    const detail = {
+      stamps: stampPage,
+      coins: () => h('div.stack.l.reward-detail', pageHead('Coin Rewards', 'Set how customers earn coins and what they can redeem at your shop.'), coinProgramCard(coins, coinRedemptions, done)),
+      scratch: () => h('div.stack.l.reward-detail', pageHead('Scratch Cards', 'Give one card for every approved purchase. Each deck has a fixed number of wins.'), scratchCampaignCard(scratch, done)),
+      referrals: referralPage,
+    }[section];
+    if (section === 'qr') return FX.routes.owner.shop();
+    return detail ? detail() : home();
   };
 })(window.FX);

@@ -1257,7 +1257,7 @@ class LifecycleLegalTest(APITestCase):
         self.assertFalse(Business.objects.filter(pk=b.pk).exists())  # deleted after retention
 
 
-class PublicShopOffersTest(APITestCase):
+class PublicShopOffersBasicsTest(APITestCase):
     def test_customer_shop_qr_can_be_downloaded_as_png(self):
         from .models import Business
 
@@ -1320,6 +1320,199 @@ class PublicShopOffersTest(APITestCase):
         self.assertEqual(task["rewards"][0]["terms"], "Valid on weekdays")
         self.assertEqual(task["rewards"][0]["expiry_days"], 14)
 
+
+class CoinAndScratchRewardsTest(APITestCase):
+    def setUp(self):
+        from .models import CoinProgram, Program, ScratchCampaign, Task
+
+        self.owner = User.objects.create_user("9000000881", "secret1", role="owner")
+        self.customer = User.objects.create_user("9000000882", "secret1", role="customer")
+        self.business = Business.objects.create(owner=self.owner, name="Rewards Cafe")
+        self.profile = CustomerProfile.objects.create(user=self.customer, business=self.business)
+        program = Program.objects.create(business=self.business, title="Spend club")
+        self.task = Task.objects.create(program=program, title="Spend", type="amount", target=100000)
+        CoinProgram.objects.create(business=self.business, enabled=True, spend_per_coin=10, daily_cap=1000)
+        self.campaign = ScratchCampaign.objects.create(
+            business=self.business, active=True, prize_title="Free tea", cards_per_deck=3, winning_cards=1,
+        )
+
+    def _approve_purchase(self, value=125):
+        entry = PurchaseEntry.objects.create(profile=self.profile, task=self.task, value=value)
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(f"/api/entries/{entry.pk}/review/", {"action": "approve"}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        return entry
+
+    def test_approved_spend_earns_coins_once_and_issues_one_bounded_scratch_ticket(self):
+        from .models import CoinAccount, CoinTransaction, ScratchTicket
+
+        self.client.force_authenticate(self.owner)
+        with patch("core.services.secrets.randbelow", return_value=0):
+            entries = [self._approve_purchase() for _ in range(3)]
+        account = CoinAccount.objects.get(profile=self.profile)
+        self.assertEqual(account.balance, 36)
+        self.assertEqual(CoinTransaction.objects.filter(account=account, kind="purchase").count(), 3)
+        tickets = list(ScratchTicket.objects.filter(purchase_entry__in=entries).order_by("id"))
+        self.assertEqual([ticket.is_winner for ticket in tickets], [True, False, False])
+        self.assertEqual({ticket.deck_number for ticket in tickets}, {self.campaign.deck_number})
+        duplicate = self.client.post(f"/api/entries/{entries[0].pk}/review/", {"action": "approve"}, format="json")
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(CoinTransaction.objects.filter(account=account, kind="purchase").count(), 3)
+
+    def test_coin_redemption_reserves_balance_and_decline_refunds_it(self):
+        from .models import CoinAccount, CoinReward, CoinTransaction
+
+        self._approve_purchase()
+        reward = CoinReward.objects.create(business=self.business, title="Free coffee", cost=10)
+        self.client.force_authenticate(self.customer)
+        request = self.client.post(f"/api/coin-rewards/{reward.pk}/request/", {}, format="json")
+        self.assertEqual(request.status_code, 201, request.data)
+        self.assertEqual(request.data["balance"], 2)
+
+        self.client.force_authenticate(self.owner)
+        review = self.client.post(
+            f"/api/b/{self.business.shop_code}/coin-redemptions/{request.data['id']}/",
+            {"action": "decline"}, format="json",
+        )
+        self.assertEqual(review.status_code, 200, review.data)
+        account = CoinAccount.objects.get(profile=self.profile)
+        self.assertEqual(account.balance, 12)
+        self.assertEqual(list(CoinTransaction.objects.filter(account=account).order_by("id").values_list("delta", flat=True)),
+                         [12, -10, 10])
+
+    def test_coin_balances_and_shop_listed_rewards_are_isolated_per_shop(self):
+        from .models import CoinAccount, CoinProgram, CoinReward, Program, Task
+
+        self._approve_purchase()
+        other_business = Business.objects.create(owner=self.owner, name="Other shop")
+        other_profile = CustomerProfile.objects.create(user=self.customer, business=other_business)
+        other_program = Program.objects.create(business=other_business, title="Other spend club")
+        other_task = Task.objects.create(program=other_program, title="Spend", type="amount", target=100000)
+        CoinProgram.objects.create(business=other_business, enabled=True, spend_per_coin=10, daily_cap=1000)
+        reward = CoinReward.objects.create(business=other_business, title="Shop-only tea", cost=10)
+
+        self.client.force_authenticate(self.customer)
+        other_shop = self.client.get(f"/api/me/shop/{other_business.shop_code}/")
+        self.assertEqual(other_shop.data["coins"]["balance"], 0)
+        self.assertEqual([item["id"] for item in other_shop.data["coins"]["rewards"]], [reward.id])
+        unavailable = self.client.post(f"/api/coin-rewards/{reward.pk}/request/", {}, format="json")
+        self.assertEqual(unavailable.status_code, 400)
+        original_shop = self.client.get(f"/api/me/shop/{self.business.shop_code}/")
+        self.assertEqual(original_shop.data["coins"]["balance"], 12)
+
+        entry = PurchaseEntry.objects.create(profile=other_profile, task=other_task, value=125)
+        self.client.force_authenticate(self.owner)
+        approved = self.client.post(f"/api/entries/{entry.pk}/review/", {"action": "approve"}, format="json")
+        self.assertEqual(approved.status_code, 200, approved.data)
+
+        self.client.force_authenticate(self.customer)
+        redeemed = self.client.post(f"/api/coin-rewards/{reward.pk}/request/", {}, format="json")
+        self.assertEqual(redeemed.status_code, 201, redeemed.data)
+        self.assertEqual(CoinAccount.objects.get(profile=self.profile).balance, 12)
+        self.assertEqual(CoinAccount.objects.get(profile=other_profile).balance, 2)
+
+    def test_daily_coin_cap_applies_across_approved_purchases(self):
+        from .models import CoinAccount, CoinProgram
+
+        CoinProgram.objects.filter(business=self.business).update(daily_cap=20)
+        for _ in range(3):
+            self._approve_purchase()
+        self.assertEqual(CoinAccount.objects.get(profile=self.profile).balance, 20)
+
+    def test_owner_can_configure_coin_and_scratch_rewards(self):
+        self.client.force_authenticate(self.owner)
+        coins = self.client.put(
+            f"/api/b/{self.business.shop_code}/coin-program/",
+            {"enabled": True, "spend_per_coin": 25, "daily_cap": 500}, format="json",
+        )
+        self.assertEqual(coins.status_code, 200, coins.data)
+        self.assertEqual((coins.data["spend_per_coin"], coins.data["daily_cap"]), (25, 500))
+        reward = self.client.post(f"/api/b/{self.business.shop_code}/coin-rewards/", {
+            "title": "Free tea", "description": "Small tea", "cost": 30,
+        }, format="json")
+        self.assertEqual(reward.status_code, 201, reward.data)
+        scratch = self.client.put(f"/api/b/{self.business.shop_code}/scratch-campaign/configure/", {
+            "active": True, "prize_title": "10% off", "prize_type": "percent_off", "prize_value": 10,
+            "cards_per_deck": 20, "winning_cards": 2, "expiry_days": 14,
+        }, format="json")
+        self.assertEqual(scratch.status_code, 200, scratch.data)
+        self.assertEqual((scratch.data["cards_per_deck"], scratch.data["winning_cards"]), (20, 2))
+        invalid = self.client.put(f"/api/b/{self.business.shop_code}/scratch-campaign/configure/", {
+            "active": True, "prize_title": "Too much", "prize_type": "percent_off", "prize_value": 150,
+            "cards_per_deck": 20, "winning_cards": 2, "expiry_days": 14,
+        }, format="json")
+        self.assertEqual(invalid.status_code, 400)
+
+    def test_coin_reward_delete_preserves_redemption_history(self):
+        from .models import CoinReward
+
+        self._approve_purchase()
+        unused = CoinReward.objects.create(business=self.business, title="Unused item", cost=5)
+        used = CoinReward.objects.create(business=self.business, title="Redeemed item", cost=5)
+        self.client.force_authenticate(self.customer)
+        redemption = self.client.post(f"/api/coin-rewards/{used.pk}/request/", {}, format="json")
+        self.assertEqual(redemption.status_code, 201, redemption.data)
+
+        self.client.force_authenticate(self.owner)
+        listing = self.client.get(f"/api/b/{self.business.shop_code}/coin-program/")
+        counts = {reward["id"]: reward["redemptions_count"] for reward in listing.data["rewards"]}
+        self.assertEqual((counts[unused.id], counts[used.id]), (0, 1))
+
+        deleted = self.client.delete(f"/api/b/{self.business.shop_code}/coin-rewards/{unused.pk}/")
+        self.assertEqual(deleted.status_code, 204)
+        blocked = self.client.delete(f"/api/b/{self.business.shop_code}/coin-rewards/{used.pk}/")
+        self.assertEqual(blocked.status_code, 400)
+        self.assertTrue(CoinReward.objects.filter(pk=used.pk).exists())
+        hidden = self.client.patch(
+            f"/api/b/{self.business.shop_code}/coin-rewards/{used.pk}/", {"active": False}, format="json",
+        )
+        self.assertEqual(hidden.status_code, 200, hidden.data)
+        self.assertFalse(hidden.data["active"])
+
+    def test_purchase_undo_is_blocked_after_earned_coins_are_spent(self):
+        from .models import CoinReward, ScratchTicket
+
+        entry = self._approve_purchase()
+        reward = CoinReward.objects.create(business=self.business, title="Free coffee", cost=10)
+        self.client.force_authenticate(self.customer)
+        self.assertEqual(self.client.post(f"/api/coin-rewards/{reward.pk}/request/", {}, format="json").status_code, 201)
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(f"/api/entries/{entry.pk}/reverse/", {}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(ScratchTicket.objects.get(purchase_entry=entry).valid)
+
+    def test_scratch_reveal_is_idempotent_and_creates_a_reward(self):
+        from .models import RewardGrant, ScratchTicket
+
+        with patch("core.services.secrets.randbelow", return_value=0):
+            entry = self._approve_purchase()
+        ticket = ScratchTicket.objects.get(purchase_entry=entry)
+        self.client.force_authenticate(self.customer)
+        first = self.client.post(f"/api/scratch-tickets/{ticket.pk}/reveal/", {}, format="json")
+        second = self.client.post(f"/api/scratch-tickets/{ticket.pk}/reveal/", {}, format="json")
+        self.assertEqual(first.status_code, 200, first.data)
+        self.assertEqual(second.data["reward_code"], first.data["reward_code"])
+        self.assertEqual(RewardGrant.objects.filter(profile=self.profile).count(), 1)
+
+    def test_undo_reverses_unspent_coins_and_invalidates_unrevealed_scratch_ticket(self):
+        from .models import CoinAccount, CoinTransaction, ScratchTicket
+
+        with patch("core.services.secrets.randbelow", return_value=0):
+            entry = self._approve_purchase()
+        ticket = ScratchTicket.objects.get(purchase_entry=entry)
+        self.client.force_authenticate(self.owner)
+        reversed_entry = self.client.post(f"/api/entries/{entry.pk}/reverse/", {}, format="json")
+        self.assertEqual(reversed_entry.status_code, 200, reversed_entry.data)
+        self.assertEqual(CoinAccount.objects.get(profile=self.profile).balance, 0)
+        self.assertEqual(CoinTransaction.objects.filter(kind="reversal").count(), 1)
+        ticket.refresh_from_db()
+        self.assertFalse(ticket.valid)
+        self.client.force_authenticate(self.customer)
+        self.assertEqual(self.client.post(f"/api/scratch-tickets/{ticket.pk}/reveal/", {}, format="json").status_code, 400)
+        self.assertEqual(self.client.delete("/api/me/").status_code, 204)
+
+
+class PublicShopOffersTest(APITestCase):
     def test_public_shop_lists_only_running_offers_and_returns_upi_intent(self):
         from urllib.parse import parse_qs, urlparse
         from .models import Business, CustomerProfile, Program, Task, Reward, get_sub

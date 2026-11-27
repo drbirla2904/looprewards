@@ -1,7 +1,7 @@
 import csv
 import re
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Max, Q, Sum
@@ -69,8 +69,9 @@ def accrue(p):
             return
     base = Decimal(p.amount) * 100 / (100 + settings.GST_RATE)  # paise ex-GST
     rate = effective_rate(v)
+    commission_paise = int((base * rate / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     com, created = Commission.objects.get_or_create(payment=p, defaults={
-        "vendor": v, "rate": rate, "amount": int(base * rate / 100),
+        "vendor": v, "rate": rate, "amount": commission_paise,
         "payable_on": timezone.now() + timedelta(days=settings.COMMISSION_HOLD_DAYS)})
     if created:
         from .notify import push

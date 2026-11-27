@@ -524,11 +524,12 @@
       let pend = S.pending;
       let redemptionPend = S.redemptionPending || 0;
       if ((S.role === 'owner' || S.role === 'staff') && S.biz) {
-        const [entries, redemptions] = await Promise.all([
-          api('owner/pending/'), api('b/' + S.biz.shop_code + '/redemptions/')
+        const [entries, redemptions, coinRedemptions] = await Promise.all([
+          api('owner/pending/'), api('b/' + S.biz.shop_code + '/redemptions/'),
+          api('b/' + S.biz.shop_code + '/coin-redemptions/')
         ]);
-        pend = entries.filter(e => e.shop_code === S.biz.shop_code).length + redemptions.length;
-        redemptionPend = redemptions.length;
+        pend = entries.filter(e => e.shop_code === S.biz.shop_code).length + redemptions.length + coinRedemptions.length;
+        redemptionPend = redemptions.length + coinRedemptions.length;
       }
       const grew = pend > S.pending;
       const newRedemption = redemptionPend > (S.redemptionPending || 0);

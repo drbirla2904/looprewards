@@ -211,6 +211,105 @@ class RewardRedemptionRequest(models.Model):
         ]
 
 
+class CoinProgram(models.Model):
+    business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="coin_program")
+    enabled = models.BooleanField(default=False)
+    spend_per_coin = models.PositiveIntegerField(default=10)
+    daily_cap = models.PositiveIntegerField(default=1000)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class CoinReward(models.Model):
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="coin_rewards")
+    title = models.CharField(max_length=120)
+    description = models.CharField(max_length=240, blank=True)
+    cost = models.PositiveIntegerField()
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("cost", "id")
+
+
+class CoinAccount(models.Model):
+    profile = models.OneToOneField(CustomerProfile, on_delete=models.CASCADE, related_name="coin_account")
+    balance = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class CoinRedemption(models.Model):
+    STATUSES = [("pending", "Pending"), ("approved", "Approved"), ("declined", "Declined")]
+    profile = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="coin_redemptions")
+    reward = models.ForeignKey(CoinReward, on_delete=models.PROTECT, related_name="redemptions")
+    coins_cost = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=STATUSES, default="pending")
+    requested_at = models.DateTimeField(default=timezone.now)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="reviewed_coin_redemptions")
+
+    class Meta:
+        ordering = ("requested_at", "id")
+
+
+class CoinTransaction(models.Model):
+    KINDS = [("purchase", "Purchase"), ("redemption", "Redemption"), ("refund", "Refund"), ("reversal", "Purchase reversal")]
+    account = models.ForeignKey(CoinAccount, on_delete=models.CASCADE, related_name="transactions")
+    delta = models.BigIntegerField()
+    kind = models.CharField(max_length=12, choices=KINDS)
+    purchase_entry = models.OneToOneField(PurchaseEntry, null=True, blank=True, on_delete=models.CASCADE,
+                                          related_name="coin_transaction")
+    redemption = models.ForeignKey(CoinRedemption, null=True, blank=True, on_delete=models.CASCADE,
+                                   related_name="transactions")
+    reversal_of = models.OneToOneField("self", null=True, blank=True, on_delete=models.CASCADE,
+                                       related_name="reversal")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        constraints = [
+            models.UniqueConstraint(fields=("redemption", "kind"), condition=models.Q(redemption__isnull=False),
+                                    name="one_coin_txn_kind_per_redemption"),
+        ]
+
+
+class ScratchCampaign(models.Model):
+    business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="scratch_campaign")
+    active = models.BooleanField(default=False)
+    prize_title = models.CharField(max_length=120, blank=True)
+    prize_type = models.CharField(max_length=15, choices=Reward.TYPES, default="free_item")
+    prize_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    prize_terms = models.CharField(max_length=500, blank=True)
+    expiry_days = models.PositiveSmallIntegerField(default=30)
+    cards_per_deck = models.PositiveSmallIntegerField(default=10)
+    winning_cards = models.PositiveSmallIntegerField(default=1)
+    deck_number = models.PositiveIntegerField(default=1)
+    cards_issued = models.PositiveSmallIntegerField(default=0)
+    wins_issued = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ScratchTicket(models.Model):
+    profile = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="scratch_tickets")
+    campaign = models.ForeignKey(ScratchCampaign, on_delete=models.CASCADE, related_name="tickets")
+    purchase_entry = models.OneToOneField(PurchaseEntry, on_delete=models.CASCADE, related_name="scratch_ticket")
+    deck_number = models.PositiveIntegerField()
+    valid = models.BooleanField(default=True)
+    is_winner = models.BooleanField(default=False)
+    prize_title = models.CharField(max_length=120, blank=True)
+    prize_type = models.CharField(max_length=15, choices=Reward.TYPES, blank=True)
+    prize_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    prize_terms = models.CharField(max_length=500, blank=True)
+    expiry_days = models.PositiveSmallIntegerField(default=30)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    revealed_at = models.DateTimeField(null=True, blank=True)
+    reward_grant = models.OneToOneField(RewardGrant, null=True, blank=True, on_delete=models.SET_NULL,
+                                        related_name="scratch_ticket")
+
+    class Meta:
+        ordering = ("-issued_at", "-id")
+
+
 class SocialFollowClaim(models.Model):
     profile = models.OneToOneField(CustomerProfile, on_delete=models.CASCADE, related_name="social_follow_claim")
     status = models.CharField(max_length=10, default="pending", choices=[

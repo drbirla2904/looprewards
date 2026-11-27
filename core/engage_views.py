@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -15,9 +16,10 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from . import blueprints, engage, services
-from .models import (AuditLog, Booking, Boost, Business, CustomerProfile, Feedback, PurchaseEntry, Reward,
-                     RewardGrant, RewardRedemptionRequest, Service, ShopOffer, ShopOfferItem, SocialFollowClaim,
-                     can_manage)
+from .models import (AuditLog, Booking, Boost, Business, CoinAccount, CoinProgram, CoinRedemption, CoinReward,
+                     CoinTransaction, CustomerProfile, Feedback, PurchaseEntry, Reward, RewardGrant,
+                     RewardRedemptionRequest, ScratchCampaign, ScratchTicket, Service, ShopOffer,
+                     ShopOfferItem, SocialFollowClaim, can_manage)
 from .notify import announce_shop_customers, push
 from .serializers import (BoostSerializer, BookingSerializer, FeedbackSerializer, ServiceSerializer,
                           ShopOfferSerializer)
@@ -112,6 +114,25 @@ def customer_shop(request, code):
         "referral_reward": next((r.title for r in biz.perk_rewards.filter(trigger="referral")[:1]), ""),
         "friends_referred": p.referred.count(),
     })
+    account = CoinAccount.objects.filter(profile=p).first()
+    coin_config = getattr(biz, "coin_program", None)
+    coins_enabled = bool(coin_config and coin_config.enabled)
+    st["coins"] = {
+        "enabled": coins_enabled,
+        "balance": account.balance if account else 0,
+        "rewards": ([{"id": r.id, "title": r.title, "description": r.description, "cost": r.cost}
+                     for r in biz.coin_rewards.filter(active=True)] if coins_enabled else []),
+        "redemptions": [{
+            "id": r.id, "title": r.reward.title, "coins": r.coins_cost, "status": r.status,
+            "requested_at": r.requested_at,
+        } for r in p.coin_redemptions.select_related("reward").order_by("-requested_at")[:10]],
+    }
+    st["scratch_tickets"] = [{
+        "id": ticket.id, "revealed": bool(ticket.revealed_at), "is_winner": ticket.is_winner if ticket.revealed_at else None,
+        "prize_title": ticket.prize_title if ticket.revealed_at and ticket.is_winner else "",
+        "reward_code": ticket.reward_grant.code if ticket.reward_grant_id else "",
+        "issued_at": ticket.issued_at,
+    } for ticket in p.scratch_tickets.filter(valid=True).select_related("reward_grant").order_by("-issued_at")[:20]]
     social_reward = biz.perk_rewards.filter(trigger="social").first()
     follow_claim = SocialFollowClaim.objects.filter(profile=p).select_related("reward_grant__reward").first()
     st["social_follow_reward"] = _perk(social_reward) if social_reward else None
@@ -562,6 +583,218 @@ def perks(request, code):
         r = biz.perk_rewards.filter(trigger=trig).first()
         out[trig] = _perk(r) if r else None
     return Response(out)
+
+
+@api_view(["GET", "PUT"])
+def coin_program(request, code):
+    biz = _owner_biz(request, code)
+    config, _ = CoinProgram.objects.get_or_create(business=biz)
+    if request.method == "PUT":
+        enabled = request.data.get("enabled", config.enabled)
+        if not isinstance(enabled, bool):
+            raise ValidationError("Choose whether Coin Rewards is enabled.")
+        try:
+            rate = int(request.data.get("spend_per_coin", config.spend_per_coin))
+            cap = int(request.data.get("daily_cap", config.daily_cap))
+        except (TypeError, ValueError):
+            raise ValidationError("Spend rate and daily cap must be whole numbers.")
+        if not 1 <= rate <= 100000 or not 1 <= cap <= 1000000:
+            raise ValidationError("Spend rate must be 1–100000 and daily cap 1–1000000.")
+        config.enabled, config.spend_per_coin, config.daily_cap = enabled, rate, cap
+        config.save(update_fields=["enabled", "spend_per_coin", "daily_cap", "updated_at"])
+    rewards = biz.coin_rewards.annotate(redemptions_count=Count("redemptions"))
+    return Response({
+        "enabled": config.enabled, "spend_per_coin": config.spend_per_coin, "daily_cap": config.daily_cap,
+        "rewards": [{"id": r.id, "title": r.title, "description": r.description, "cost": r.cost,
+                     "active": r.active, "redemptions_count": r.redemptions_count} for r in rewards],
+    })
+
+
+@api_view(["POST"])
+def coin_reward_create(request, code):
+    biz = _owner_biz(request, code)
+    title = str(request.data.get("title", "")).strip()[:120]
+    description = str(request.data.get("description", "")).strip()[:240]
+    try:
+        cost = int(request.data.get("cost"))
+    except (TypeError, ValueError):
+        raise ValidationError("Enter a whole-number coin cost.")
+    if not title or not 1 <= cost <= 10000000:
+        raise ValidationError("Give the reward a title and a cost between 1 and 10000000 coins.")
+    reward = CoinReward.objects.create(business=biz, title=title, description=description, cost=cost)
+    return Response({"id": reward.id, "title": reward.title, "description": reward.description, "cost": reward.cost,
+                     "active": reward.active}, status=201)
+
+
+@api_view(["PATCH", "DELETE"])
+@transaction.atomic
+def coin_reward_detail(request, code, pk):
+    biz = _owner_biz(request, code)
+    reward = get_object_or_404(CoinReward.objects.select_for_update(), business=biz, pk=pk)
+    if request.method == "DELETE":
+        if reward.redemptions.exists():
+            raise ValidationError("This coin reward has redemption history and cannot be deleted. Hide it instead.")
+        reward.delete()
+        return Response(status=204)
+    if "title" in request.data:
+        reward.title = str(request.data["title"]).strip()[:120]
+        if not reward.title:
+            raise ValidationError("Enter a reward title.")
+    if "description" in request.data:
+        reward.description = str(request.data["description"]).strip()[:240]
+    if "cost" in request.data:
+        try:
+            reward.cost = int(request.data["cost"])
+        except (TypeError, ValueError):
+            raise ValidationError("Enter a whole-number coin cost.")
+        if not 1 <= reward.cost <= 10000000:
+            raise ValidationError("Coin cost must be between 1 and 10000000.")
+    if "active" in request.data:
+        if not isinstance(request.data["active"], bool):
+            raise ValidationError("Choose whether this reward is active.")
+        reward.active = request.data["active"]
+    reward.save()
+    return Response({"id": reward.id, "title": reward.title, "description": reward.description,
+                     "cost": reward.cost, "active": reward.active})
+
+
+@api_view(["GET"])
+def coin_redemptions(request, code):
+    biz = _mgr_biz(request, code)
+    return Response([{
+        "id": r.id, "customer": r.profile.user.first_name or "Customer",
+        "mobile_last4": r.profile.user.username[-4:], "reward": r.reward.title,
+        "coins": r.coins_cost, "requested_at": r.requested_at,
+    } for r in CoinRedemption.objects.filter(profile__business=biz, status="pending")
+        .select_related("profile__user", "reward").order_by("requested_at", "id")])
+
+
+@api_view(["POST"])
+@transaction.atomic
+def coin_redemption_review(request, code, pk):
+    biz = _mgr_biz(request, code)
+    redemption = get_object_or_404(
+        CoinRedemption.objects.select_for_update().select_related("profile__user", "reward"),
+        pk=pk, profile__business=biz,
+    )
+    action = request.data.get("action")
+    if action not in ("approve", "decline"):
+        raise ValidationError("Choose approve or decline.")
+    if redemption.status != "pending":
+        raise ValidationError("This coin redemption has already been reviewed.")
+    redemption.status = "approved" if action == "approve" else "declined"
+    redemption.reviewed_at, redemption.reviewed_by = timezone.now(), request.user
+    redemption.save(update_fields=["status", "reviewed_at", "reviewed_by"])
+    if action == "decline":
+        account = CoinAccount.objects.select_for_update().get(profile=redemption.profile)
+        account.balance += redemption.coins_cost
+        account.save(update_fields=["balance", "updated_at"])
+        CoinTransaction.objects.create(account=account, delta=redemption.coins_cost, kind="refund",
+                                       redemption=redemption)
+        message = f"{biz.name} declined your coin redemption. {redemption.coins_cost} coins were returned."
+    else:
+        message = f"{biz.name} approved your coin redemption for {redemption.reward.title}."
+    push(redemption.profile.user, message, link=f"/b/{biz.shop_code}/?tab=rewards")
+    return Response({"status": redemption.status})
+
+
+@api_view(["POST"])
+@transaction.atomic
+def coin_redemption_request(request, reward_id):
+    user = _customer(request)
+    reward = get_object_or_404(
+        CoinReward.objects.select_for_update(), pk=reward_id, active=True, business__coin_program__enabled=True,
+    )
+    profile = get_object_or_404(
+        CustomerProfile.objects.select_for_update(), user=user, business=reward.business, status="active",
+    )
+    if not reward.business.is_live:
+        raise ValidationError("This shop is not accepting rewards right now.")
+    account = CoinAccount.objects.select_for_update().filter(profile=profile).first()
+    if not account or account.balance < reward.cost:
+        raise ValidationError("You do not have enough coins for this reward.")
+    account.balance -= reward.cost
+    account.save(update_fields=["balance", "updated_at"])
+    redemption = CoinRedemption.objects.create(profile=profile, reward=reward, coins_cost=reward.cost)
+    CoinTransaction.objects.create(account=account, delta=-reward.cost, kind="redemption", redemption=redemption)
+    for manager in _managers(reward.business):
+        push(manager, f"{user.first_name or 'A customer'} requested {reward.title} with coins.",
+             link="/app/#/rewards")
+    return Response({"id": redemption.id, "status": redemption.status, "balance": account.balance}, status=201)
+
+
+@api_view(["PUT"])
+def scratch_campaign(request, code):
+    biz = _owner_biz(request, code)
+    campaign, _ = ScratchCampaign.objects.get_or_create(business=biz)
+    active = request.data.get("active", campaign.active)
+    if not isinstance(active, bool):
+        raise ValidationError("Choose whether Scratch Cards is enabled.")
+    title = str(request.data.get("prize_title", campaign.prize_title)).strip()[:120]
+    prize_type = request.data.get("prize_type", campaign.prize_type)
+    terms = str(request.data.get("prize_terms", campaign.prize_terms)).strip()[:500]
+    value = _dec(request.data.get("prize_value", campaign.prize_value))
+    try:
+        expiry = int(request.data.get("expiry_days", campaign.expiry_days))
+        deck = int(request.data.get("cards_per_deck", campaign.cards_per_deck))
+        winners = int(request.data.get("winning_cards", campaign.winning_cards))
+    except (TypeError, ValueError):
+        raise ValidationError("Enter valid whole-number campaign settings.")
+    if prize_type not in dict(Reward.TYPES) or (active and not title):
+        raise ValidationError("Set a prize title and choose a valid reward type before activating the campaign.")
+    if not 1 <= expiry <= 365 or not 2 <= deck <= 1000 or not 1 <= winners <= deck:
+        raise ValidationError("Use 1–365 expiry days, 2–1000 cards, and at least one winner (no more than the deck size).")
+    if prize_type == "percent_off" and value > 100:
+        raise ValidationError("Percentage prizes cannot exceed 100%.")
+    deck_changed = (deck, winners) != (campaign.cards_per_deck, campaign.winning_cards)
+    prize_changed = (title, prize_type, value, terms, expiry) != (
+        campaign.prize_title, campaign.prize_type, campaign.prize_value, campaign.prize_terms, campaign.expiry_days,
+    )
+    if deck_changed or prize_changed:
+        campaign.deck_number += 1
+        campaign.cards_issued = 0
+        campaign.wins_issued = 0
+    campaign.active, campaign.prize_title, campaign.prize_type = active, title, prize_type
+    campaign.prize_value, campaign.prize_terms = value, terms
+    campaign.expiry_days, campaign.cards_per_deck, campaign.winning_cards = expiry, deck, winners
+    campaign.save()
+    return Response({
+        "active": campaign.active, "prize_title": campaign.prize_title, "prize_type": campaign.prize_type,
+        "prize_value": str(campaign.prize_value), "prize_terms": campaign.prize_terms,
+        "expiry_days": campaign.expiry_days, "cards_per_deck": campaign.cards_per_deck,
+        "winning_cards": campaign.winning_cards, "cards_issued": campaign.cards_issued,
+    })
+
+
+@api_view(["GET"])
+def scratch_campaign_get(request, code):
+    biz = _owner_biz(request, code)
+    campaign = ScratchCampaign.objects.filter(business=biz).first()
+    if campaign is None:
+        return Response({"active": False, "prize_title": "", "prize_type": "free_item", "prize_value": "0",
+                         "prize_terms": "", "expiry_days": 30, "cards_per_deck": 10,
+                         "winning_cards": 1, "cards_issued": 0})
+    return Response({
+        "active": campaign.active, "prize_title": campaign.prize_title, "prize_type": campaign.prize_type,
+        "prize_value": str(campaign.prize_value), "prize_terms": campaign.prize_terms,
+        "expiry_days": campaign.expiry_days, "cards_per_deck": campaign.cards_per_deck,
+        "winning_cards": campaign.winning_cards, "cards_issued": campaign.cards_issued,
+    })
+
+
+@api_view(["POST"])
+@transaction.atomic
+def scratch_ticket_reveal(request, ticket_id):
+    user = _customer(request)
+    ticket, newly_revealed = services.reveal_scratch_ticket(ticket_id, user)
+    if newly_revealed and ticket.is_winner:
+        push(user, f"You won {ticket.prize_title} at {ticket.profile.business.name}!",
+             link=f"/b/{ticket.profile.business.shop_code}/?tab=rewards")
+    return Response({
+        "id": ticket.id, "revealed": True, "is_winner": ticket.is_winner,
+        "prize_title": ticket.prize_title if ticket.is_winner else "",
+        "reward_code": ticket.reward_grant.code if ticket.reward_grant_id else "",
+    })
 
 
 @api_view(["POST"])

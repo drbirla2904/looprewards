@@ -7,7 +7,9 @@ from . import models
 from .billing import mark_paid, revoke_period
 from .notify import push
 for m in (models.User, models.Business, models.Program, models.Task, models.Reward,
-          models.CustomerProfile, models.PurchaseEntry, models.RewardGrant, models.AuditLog):
+          models.CustomerProfile, models.PurchaseEntry, models.RewardGrant, models.AuditLog,
+          models.CoinProgram, models.CoinReward, models.CoinAccount, models.CoinRedemption,
+          models.CoinTransaction, models.ScratchCampaign, models.ScratchTicket):
     admin.site.register(m)
 
 

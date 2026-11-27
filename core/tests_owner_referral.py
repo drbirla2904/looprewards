@@ -1,6 +1,6 @@
 """Tests for business owners referring other businesses and earning in a wallet."""
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.test import override_settings
 from django.utils import timezone
@@ -86,7 +86,7 @@ class WalletTests(OwnerReferralBase):
         self.friend = self.make_owner("9310000002", upi="friend@upi", referred_by=self.v)
 
     def amount(self):
-        return int(Decimal(9900) * 100 / 118 * 20 / 100)
+        return int((Decimal(9900) * 100 / 118 * 20 / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     def test_referred_business_payment_credits_wallet_on_hold_and_notifies(self):
         self.pay(self.friend)

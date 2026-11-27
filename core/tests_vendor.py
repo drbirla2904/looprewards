@@ -1,5 +1,5 @@
 """Tests for partner tiers, shop activity, marketing kit, TDS payouts and statements."""
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.test import override_settings
 from django.utils import timezone
@@ -45,7 +45,7 @@ class TierTests(VendorBase):
         c = Commission.objects.get()
         self.assertEqual(c.rate, Decimal("20"))
         base = Decimal(9900) * 100 / 118
-        self.assertEqual(c.amount, int(base * 20 / 100))
+        self.assertEqual(c.amount, int((base * 20 / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
         self.assertEqual(vendors.tier_for(v)["name"], "Starter")
 
     def test_tier_bonus_applies_from_active_paying_shops_and_is_frozen_on_each_commission(self):

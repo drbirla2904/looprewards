@@ -481,15 +481,63 @@
     g.status === 'active' ? h('details.code-fallback', h('summary.muted', t('Use code instead')), codePass) :
       h('div.stub', h('small.muted', t('Reward code')), h('div.code', g.code)));
   };
+  function coinRewardsCard(coins, onChange) {
+    coins = coins || { enabled: false, balance: 0, rewards: [], redemptions: [] };
+    if (!coins.enabled && !coins.balance && !coins.redemptions.length) return null;
+    return h('div.card.stack',
+      h('div.row.between', h('div', h('h3', t('Coin Rewards')), h('small.muted', t('Earn and spend coins at this shop.'))),
+        h('div.coin-balance', '🪙 ' + t('{n} coins', { n: coins.balance }))),
+      coins.enabled && coins.rewards.length ? coins.rewards.map(reward => h('div.li.coin-reward-row',
+        h('div.grow.stack.s', h('div.row.wrap', h('b', reward.title), pill(t('{n} coins', { n: reward.cost }), 'info')),
+          reward.description ? h('small.muted', reward.description) : null),
+        h('button.btn.sm', { disabled: coins.balance < reward.cost, onclick: async e => {
+          if (!await FX.confirmBox(t('Request {item} for {n} coins? The shop must approve it.', {
+            item: reward.title, n: reward.cost
+          }), t('Request item'))) return;
+          await busy(e.target, async () => {
+            await api('coin-rewards/' + reward.id + '/request/', 'POST', {});
+            toast(t('Coin redemption requested. The shop will review it.'));
+            await onChange();
+          });
+        } }, t('Request item')))) : coins.enabled ? empty('No coin rewards available', 'The shop has not added any coin rewards yet.') :
+        h('p.small.muted', t('Coin redemption is paused by the shop.')),
+      coins.redemptions.length ? h('details', h('summary.muted', t('Coin redemption history')),
+        h('div.stack.s', { style: 'margin-top:10px' }, coins.redemptions.map(item => h('div.li',
+          h('div.grow', h('b', item.title), h('small.muted', t('{n} coins', { n: item.coins }))),
+          pill(t(item.status), item.status === 'approved' ? 'ok' : item.status === 'pending' ? 'warn' : ''))))) : null);
+  }
   function rewardsTab(biz, me) {
     const act = me.rewards.filter(g => g.status === 'active'), old = me.rewards.filter(g => g.status !== 'active');
-    return h('div.stack', act.length ? act.map(g => ticket(g, null, biz.brand_color, biz.name)) : empty('No rewards ready', 'Keep collecting stamps. Your rewards appear here.'),
+    const coinCard = coinRewardsCard(me.coins, () => refreshShop(biz.shop_code));
+    const tickets = me.scratch_tickets || [];
+    const scratchCard = tickets.length ? h('div.card.stack', h('h3', t('Scratch Cards')),
+      tickets.map(item => h('div.li', h('div.grow', h('b', item.revealed
+        ? item.is_winner ? '🎉 ' + t('You won: {prize}', { prize: item.prize_title }) : t('No prize this time')
+        : '🎟️ ' + t('Scratch card ready')),
+      item.revealed && item.reward_code ? h('small.muted', t('Reward code: {code}', { code: item.reward_code })) :
+        h('small.muted', FX.fmtDT(item.issued_at))),
+      item.revealed ? pill(t('Revealed'), item.is_winner ? 'ok' : '') :
+        h('button.btn.sm', { onclick: e => busy(e.target, async () => {
+          const result = await api('scratch-tickets/' + item.id + '/reveal/', 'POST', {});
+          toast(result.is_winner ? t('You won: {prize}', { prize: result.prize_title }) : t('No prize this time. Keep shopping!'));
+          FX.render(true);
+        }) }, t('Scratch now'))))) : null;
+    return h('div.stack', coinCard, scratchCard,
+      act.length ? act.map(g => ticket(g, null, biz.brand_color, biz.name)) : empty('No rewards ready', 'Keep collecting stamps. Your rewards appear here.'),
       old.length ? h('details', h('summary.muted', t('Past rewards ({n})', { n: old.length })), h('div.stack', { style: 'margin-top:10px' }, old.map(g => ticket(g)))) : null);
   }
   R.rewards = async function () {
-    const w = await api('me/wallet/'), groups = [];
-    for (const s of w.shops) { if (!s.active_rewards) continue; const me = await api('me/shop/' + s.shop_code + '/'); groups.push([s, me.rewards.filter(g => g.status === 'active')]); }
-    return h('div.stack.l', h('h1', t('My rewards')), groups.length ? groups.map(([s, gs]) => h('div.stack', h('h3', s.shop), gs.map(g => ticket(g, null, s.brand_color, s.shop)))) : empty('No rewards ready', 'Keep collecting stamps. Your rewards appear here.'));
+    const w = await api('me/wallet/');
+    const groups = await Promise.all(w.shops.map(async shop => {
+      const me = await api('me/shop/' + shop.shop_code + '/');
+      return { shop, me, active: me.rewards.filter(g => g.status === 'active') };
+    }));
+    const available = groups.filter(({ me, active }) =>
+      active.length || me.coins.enabled || me.coins.balance || me.coins.redemptions.length);
+    return h('div.stack.l', h('h1', t('My rewards')), available.length ? available.map(({ shop, me, active }) =>
+      h('div.stack', h('h2', shop.shop), coinRewardsCard(me.coins, () => FX.render(true)),
+        active.length ? active.map(g => ticket(g, shop.shop, shop.brand_color, shop.shop)) : null)) :
+      empty('No rewards ready', 'Keep collecting stamps. Your rewards appear here.'));
   };
 
   /* ---------- history + rating ---------- */

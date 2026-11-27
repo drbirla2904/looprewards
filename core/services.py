@@ -1,14 +1,16 @@
 """Business rules: submit / review purchases, progress, reward grants, redemption."""
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+import secrets
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from django.db.models import Q
+from django.db.models import Q, Sum
 from . import counter, engage
 from .notify import push
-from .models import (AuditLog, Booking, CodeUse, PurchaseEntry, RewardGrant, RewardRedemptionRequest,
-                     Task, TaskProgress, can_manage)
+from .models import (AuditLog, Booking, CodeUse, CoinAccount, CoinProgram, CoinTransaction, CustomerProfile,
+                     PurchaseEntry, Reward, RewardGrant, RewardRedemptionRequest, ScratchCampaign,
+                     ScratchTicket, Task, TaskProgress, can_manage)
 
 
 def _log(business, actor, action, ref=""):
@@ -85,9 +87,76 @@ def review_entry(entry, actor, approve):
     _log(biz, actor, entry.status, entry.id)
     push(entry.profile.user, f"{biz.name}: your purchase was {entry.status}.", link=f"/b/{biz.shop_code}/?tab=earn")
     if approve:
+        issue_purchase_rewards(entry)
         _apply_progress(entry)
         engage.after_approval(entry.profile)
     return entry
+
+
+def issue_purchase_rewards(entry):
+    profile = CustomerProfile.objects.select_for_update().get(pk=entry.profile_id)
+    biz = profile.business
+    if entry.task.type == "amount":
+        config = CoinProgram.objects.select_for_update().filter(business=biz, enabled=True).first()
+        if config and config.spend_per_coin:
+            account, _ = CoinAccount.objects.get_or_create(profile=profile)
+            account = CoinAccount.objects.select_for_update().get(pk=account.pk)
+            earned_today = CoinTransaction.objects.filter(
+                account=account, kind="purchase", created_at__date=timezone.localdate(),
+            ).aggregate(total=Sum("delta"))["total"] or 0
+            coins = int(entry.value // config.spend_per_coin)
+            coins = min(coins, max(0, config.daily_cap - earned_today))
+            if coins:
+                account.balance += coins
+                account.save(update_fields=["balance", "updated_at"])
+                CoinTransaction.objects.create(account=account, delta=coins, kind="purchase", purchase_entry=entry)
+
+    campaign = ScratchCampaign.objects.select_for_update().filter(
+        business=biz, active=True,
+    ).first()
+    if not campaign or not campaign.prize_title or not campaign.cards_per_deck:
+        return
+    if campaign.cards_issued >= campaign.cards_per_deck:
+        campaign.deck_number += 1
+        campaign.cards_issued = 0
+        campaign.wins_issued = 0
+    cards_left = campaign.cards_per_deck - campaign.cards_issued
+    wins_left = max(0, campaign.winning_cards - campaign.wins_issued)
+    is_winner = wins_left > 0 and secrets.randbelow(cards_left) < wins_left
+    ticket = ScratchTicket.objects.create(
+        profile=profile, campaign=campaign, purchase_entry=entry, deck_number=campaign.deck_number,
+        is_winner=is_winner, prize_title=campaign.prize_title if is_winner else "",
+        prize_type=campaign.prize_type if is_winner else "", prize_value=campaign.prize_value if is_winner else 0,
+        prize_terms=campaign.prize_terms if is_winner else "", expiry_days=campaign.expiry_days,
+    )
+    campaign.cards_issued += 1
+    campaign.wins_issued += int(is_winner)
+    campaign.save(update_fields=["deck_number", "cards_issued", "wins_issued", "updated_at"])
+    return ticket
+
+
+@transaction.atomic
+def reveal_scratch_ticket(ticket_id, user):
+    ticket = ScratchTicket.objects.select_for_update().select_related(
+        "profile__business", "profile__user",
+    ).get(pk=ticket_id, profile__user=user)
+    if ticket.revealed_at:
+        return ticket, False
+    if not ticket.valid or ticket.purchase_entry.status != "approved":
+        raise ValidationError("This scratch card is no longer valid.")
+    ticket.revealed_at = timezone.now()
+    if ticket.is_winner:
+        reward = Reward.objects.create(
+            business=ticket.profile.business, title=ticket.prize_title, type=ticket.prize_type,
+            value=ticket.prize_value, expiry_days=ticket.expiry_days, terms=ticket.prize_terms,
+            trigger="spin",
+        )
+        ticket.reward_grant = RewardGrant.objects.create(
+            profile=ticket.profile, reward=reward,
+            expires_at=ticket.revealed_at + timedelta(days=ticket.expiry_days),
+        )
+    ticket.save(update_fields=["revealed_at", "reward_grant"])
+    return ticket, True
 
 
 def _apply_progress(entry):
@@ -182,6 +251,15 @@ def reverse_entry(entry, actor):
         profile=entry.profile, reward__task=entry.task, status="used", issued_at__gte=entry.reviewed_at,
     ).exists():
         raise ValidationError("This purchase cannot be undone because its reward was already redeemed.")
+    ticket = ScratchTicket.objects.select_for_update().filter(purchase_entry=entry).first()
+    if ticket and ticket.revealed_at:
+        raise ValidationError("This purchase cannot be undone after its scratch card was revealed.")
+    coin_tx = CoinTransaction.objects.select_for_update().filter(purchase_entry=entry).first()
+    account = None
+    if coin_tx:
+        account = CoinAccount.objects.select_for_update().get(pk=coin_tx.account_id)
+        if account.balance < coin_tx.delta:
+            raise ValidationError("This purchase cannot be undone because some earned coins have already been spent.")
     task = entry.task
     prog = TaskProgress.objects.select_for_update().get(profile=entry.profile, task=task)
     tgt = prog.target or task.target
@@ -194,6 +272,13 @@ def reverse_entry(entry, actor):
             g.status = "revoked"; g.save()
     prog.current_value = max(prog.current_value, 0)
     prog.save()
+    if coin_tx:
+        account.balance -= coin_tx.delta
+        account.save(update_fields=["balance", "updated_at"])
+        CoinTransaction.objects.create(account=account, delta=-coin_tx.delta, kind="reversal", reversal_of=coin_tx)
+    if ticket:
+        ticket.valid = False
+        ticket.save(update_fields=["valid"])
     entry.status = "reversed"; entry.save()
     _log(biz, actor, "reversed", entry.id)
     push(entry.profile.user, f"{biz.name}: your purchase approval was undone.", link=f"/b/{biz.shop_code}/?tab=history")
