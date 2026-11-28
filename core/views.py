@@ -19,7 +19,8 @@ from . import blueprints
 from .models import (Vendor, Business, CustomerProfile, Feedback, Program, PurchaseEntry, Reward, Task, User,
                      new_shop_code)
 from .notify import announce_shop_customers
-from .serializers import BusinessSerializer, EntrySerializer, ProgramSerializer, ShopOfferSerializer
+from .serializers import (BusinessSerializer, CoinPurchaseSubmitSerializer, EntrySerializer, ProgramSerializer,
+                          ShopOfferSerializer)
 
 
 def _mgr_only(user):
@@ -247,6 +248,19 @@ def submit_entry(request):
     return Response(EntrySerializer(e).data, status=201)
 
 
+@api_view(["POST"])
+def submit_coin_purchase(request, code):
+    _customer_only(request.user)
+    profile = get_object_or_404(CustomerProfile, user=request.user, business__shop_code=code)
+    serializer = CoinPurchaseSubmitSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    e = services.submit_coin_purchase(
+        profile, serializer.validated_data["amount"], serializer.validated_data["bill_photo"],
+        _f(request.data.get("lat")), _f(request.data.get("lng")),
+    )
+    return Response(EntrySerializer(e).data, status=201)
+
+
 @api_view(["GET"])
 def pending(request):
     _mgr_only(request.user)
@@ -314,8 +328,10 @@ def my_shops(request):
                          "expires_at": g.expires_at, "item_name": g.reward.item_name,
                          "original_price": g.reward.original_price, "offer_price": g.reward.offer_price,
                          "image": g.reward.image.url if g.reward.image else ""} for g in p.grants.select_related("reward")],
-            "entries": [{"id": e.id, "task_id": e.task_id, "task_title": e.task.title,
-                         "task_type": e.task.type, "value": e.value, "status": e.status,
+            "entries": [{"id": e.id, "task_id": e.task_id,
+                         "task_title": e.task.title if e.task_id else "Coin purchase",
+                         "task_type": e.task.type if e.task_id else "coin_only",
+                         "value": e.value, "status": e.status,
                          "created_at": e.created_at, "reviewed_at": e.reviewed_at}
                         for e in entries[:10]],
         })

@@ -414,6 +414,7 @@
     const live = me.live && me.status === 'active';
     const pend = me.entries.filter(e => e.status === 'pending');
     const seen = new Set(me.rewards.map(g => g.code));
+    const coinCollect = coinPurchaseCard(me.coins, biz, () => refreshShop(biz.shop_code));
     const list = me.tasks.map(tk => h('div.task' + (pend.length ? '.waiting' : ''), h('div.row.between', h('b', tk.title), tk.repeatable && tk.completed ? pill(t('Earned {n}x', { n: tk.completed }), 'ok') : null),
       stampRow(tk.current, tk.target, tk.type, true) || null,
       h('div.bar', h('i', { style: { width: tk.pct + '%' } })),
@@ -422,13 +423,15 @@
       live && me.entries_left_today > 0 ? h('div.claim-note', me.approval_mode === 'auto' ? t('Approved instantly at this shop') : t('Scan the counter QR for instant approval')) : null));
     return h('div.stack', me.status === 'blocked' ? h('div.banner.red', t('This shop has paused your account.')) : null,
       pend.length ? h('div.banner.blue', '⏳ ' + t('{n} purchase waiting for the shop to confirm', { n: pend.length }) + ' · ' + t('We will tell you the moment it is approved.')) : null,
+      coinCollect,
       list.length ? list : empty('No rewards running right now', 'Check back soon.'),
       biz.pay_link ? h('a.btn.ghost', { href: biz.pay_link }, t('Pay with UPI')) : null);
   }
   async function submitSheet(biz, me, tk, seen) {
     const q = new URLSearchParams(location.search), isVisit = tk.type === 'visit';
     const cc = inp({ inputmode: 'numeric', maxlength: 6, value: q.get('c') || '', ph: '6-digit counter code', autocomplete: 'one-time-code' });
-    const bill = h('input', { type: 'file', accept: 'image/*', capture: 'environment', required: biz.require_bill_photo });
+    const billRequired = biz.require_bill_photo || !!(me.coins && me.coins.enabled);
+    const bill = h('input', { type: 'file', accept: 'image/*', capture: 'environment', required: billRequired });
     const err = h('div.err', { role: 'alert' });
     const note = h('div.instant');
     const setNote = () => { const fast = cc.value.trim() || me.approval_mode === 'auto'; note.className = 'instant' + (fast ? '' : ' wait'); note.replaceChildren(h('span', fast ? '⚡' : '⏳'), t(fast ? 'This will be approved instantly.' : 'The shop will confirm this shortly.')); };
@@ -462,7 +465,7 @@
       tk.rewards[0] ? h('div.row', h('span', { style: 'font-size:calc(22px * var(--font-scale, .8))' }, '🎁'), h('small.muted', t('Reward: {r}', { r: tk.rewards[0].title }))) : null,
       isVisit ? h('p.muted', t('Records one visit.')) : [h('div.field', h('span', t(TYPE_HINT[tk.type])), val._wrap), quick],
       field('Counter code', cc, 'Optional. Scan the QR at the counter for instant approval.'),
-      field(biz.require_bill_photo ? 'Bill photo (required)' : 'Bill photo (optional)', bill), note, err, go), { cls: 'sheet' });
+      field(billRequired ? 'Bill photo (required)' : 'Bill photo (optional)', bill), note, err, go), { cls: 'sheet' });
     if (val) setTimeout(() => val.focus && val.focus(), 250);
   }
 
@@ -524,7 +527,45 @@
     if (r.referrer_bonus) out.push(t('{n} coins for each friend you bring', { n: r.referrer_bonus }));
     return out;
   }
-  function coinRewardsCard(coins, onChange) {
+  function coinPurchaseSheet(biz, onChange) {
+    const amount = inp({ type: 'number', inputmode: 'decimal', min: '0.01', step: '0.01', ph: 'Amount on bill' });
+    const bill = h('input', { type: 'file', accept: 'image/*', capture: 'environment', required: true });
+    const err = h('div.err', { role: 'alert' });
+    const submit = h('button.btn.gold.lg.block', { type: 'button', onclick: e => busy(e.currentTarget, async () => {
+      if (!amount.value || Number(amount.value) <= 0) throw new Error(t('Enter the amount shown on your bill.'));
+      if (!bill.files || !bill.files[0]) throw new Error(t('Bill photo is required.'));
+      if (bill.files[0].size > 5 * 1024 * 1024) throw new Error(t('Bill photos must be 5 MB or smaller.'));
+      const data = new FormData();
+      data.append('amount', amount.value);
+      data.append('bill_photo', bill.files[0]);
+      const pos = await FX.getPos();
+      if (pos) { data.append('lat', pos.latitude); data.append('lng', pos.longitude); }
+      await api('b/' + biz.shop_code + '/coin-purchases/', 'POST', data);
+      m.close();
+      toast(t('Bill submitted. Coins are added after the shop verifies it.'));
+      await onChange();
+    }) }, t('Submit bill for coins'));
+    const m = modal(t('Collect coins for this purchase'), h('div.stack',
+      h('div.grab'),
+      h('p.muted', t('Add your bill for any purchase; the shop checks it before crediting coins.')),
+      field('Amount on bill', amount),
+      field('Bill photo', bill, 'Upload a clear photo. Maximum size: 5 MB.'),
+      err, submit), { cls: 'sheet' });
+    setTimeout(() => amount.focus(), 250);
+  }
+  function coinPurchaseCard(coins, biz, onChange) {
+    if (!coins || !coins.enabled || !biz) return null;
+    const pending = coins.pending_purchases || [];
+    return h('div.coin-collect',
+      h('div.stack.s', h('b', t('Collect coins on every purchase')),
+        h('small.muted', t('Add your bill for any purchase; the shop checks it before crediting coins.')),
+        h('small.muted', t('If you already submit this bill for a shop reward, it will earn coins automatically. Submit each bill only once.'))),
+      pending.length ? h('div.coin-purchase-pending', pending.map(p =>
+        h('div.row.between', h('b', t('Bill awaiting shop approval')), h('span.num', FX.rupee(p.amount))))) : null,
+      h('button.btn.gold.block', { type: 'button', onclick: () => coinPurchaseSheet(biz, onChange) },
+        t('Add purchase bill')));
+  }
+  function coinRewardsCard(coins, onChange, biz) {
     coins = coins || { enabled: false, balance: 0, rewards: [], redemptions: [], history: [] };
     if (!coins.enabled && !coins.balance && !coins.redemptions.length) return null;
     const next = coins.next_reward, rules = coinRules(coins), history = coins.history || [];
@@ -534,6 +575,7 @@
         next ? h('div.coin-next', h('div.bar', h('i', { style: { width: next.pct + '%' } })),
           h('small', t('{n} more coins to unlock {item}', { n: next.needed, item: next.title }))) :
           coins.rewards.length ? h('small', '🎉 ' + t('You can afford every reward below')) : null),
+      coinPurchaseCard(coins, biz, onChange),
       rules.length ? h('div.coin-rules', rules.map(r => h('span.chip', r))) : null,
       pending.map(r => h('div.coin-pass', h('div.stack.s', h('b', r.title), h('small.muted', t('Show this code to the shop') + ' · ' + t('{n} coins', { n: r.coins }))),
         h('div.row', h('span.coin-code', r.code), h('button.btn.ghost.sm', { onclick: async e => {
@@ -567,7 +609,7 @@
   }
   function rewardsTab(biz, me) {
     const act = me.rewards.filter(g => g.status === 'active'), old = me.rewards.filter(g => g.status !== 'active');
-    const coinCard = coinRewardsCard(me.coins, () => refreshShop(biz.shop_code));
+    const coinCard = coinRewardsCard(me.coins, () => refreshShop(biz.shop_code), biz);
     const tickets = me.scratch_tickets || [];
     const scratchCard = tickets.length ? h('div.card.stack.scratch-cards',
       h('div.row', h('span.scratch-section-icon', '🎟️'), h('h3', t('Scratch Cards')), pill(t('{n} ready', { n: tickets.filter(item => !item.revealed).length }), 'info')),
@@ -611,7 +653,7 @@
     const available = groups.filter(({ me, active }) =>
       active.length || me.coins.enabled || me.coins.balance || me.coins.redemptions.length);
     return h('div.stack.l', h('h1', t('My rewards')), available.length ? available.map(({ shop, me, active }) =>
-      h('div.stack', h('h2', shop.shop), coinRewardsCard(me.coins, () => FX.render(true)),
+      h('div.stack', h('h2', shop.shop), coinRewardsCard(me.coins, () => FX.render(true), shop),
         active.length ? active.map(g => ticket(g, shop.shop, shop.brand_color, shop.shop)) : null)) :
       empty('No rewards ready', 'Keep collecting stamps. Your rewards appear here.'));
   };

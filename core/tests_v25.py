@@ -1,9 +1,15 @@
 """v2.5: coin bonuses (welcome / visit / refer-and-earn), coin ledger + cancel, offer titles/end dates, brand payload."""
+from io import BytesIO
+import tempfile
 from datetime import timedelta
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.utils import timezone
+from PIL import Image
 
-from .models import CoinAccount, CoinProgram, CoinTransaction, CoinRedemption, CoinReward, CustomerProfile, ShopOffer
+from .models import (CoinAccount, CoinProgram, CoinTransaction, CoinRedemption, CoinReward, CustomerProfile,
+                    ShopOffer, TaskProgress, PurchaseEntry)
 from .tests_growth import GrowthBase
 
 
@@ -91,6 +97,83 @@ class CoinBonusTests(GrowthBase):
         rid = self.client.post(f"/api/coin-rewards/{reward.pk}/request/", {}, format="json").data["id"]
         self.customer("9100000028")
         self.assertEqual(self.client.post(f"/api/coin-redemptions/{rid}/cancel/").status_code, 404)
+
+
+class CoinPurchaseCollectionTests(GrowthBase):
+    def setUp(self):
+        super().setUp()
+        CoinProgram.objects.create(business=self.biz, enabled=True, spend_per_coin=10, daily_cap=1000)
+
+    def test_reward_task_purchase_also_requires_bill_when_coin_collection_is_enabled(self):
+        customer = self.customer("9100000029")
+        self.client.credentials(HTTP_AUTHORIZATION=customer)
+        response = self.client.post(
+            "/api/entries/", {"task": self.visit_task.id, "value": 1}, format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data[0], "Please attach the bill photo.")
+
+    @staticmethod
+    def bill():
+        content = BytesIO()
+        Image.new("RGB", (4, 4), "white").save(content, format="PNG")
+        return SimpleUploadedFile("receipt.png", content.getvalue(), content_type="image/png")
+
+    def submit(self, customer, amount="235.50"):
+        self.client.credentials(HTTP_AUTHORIZATION=customer)
+        return self.client.post(f"/api/b/{self.code}/coin-purchases/", {
+            "amount": amount, "bill_photo": self.bill(),
+        }, format="multipart")
+
+    def test_bill_purchase_is_reviewed_and_coins_are_credited_without_task_progress(self):
+        customer = self.customer("9100000030")
+        profile = CustomerProfile.objects.get(user__username="9100000030", business=self.biz)
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        with override_settings(MEDIA_ROOT=media.name):
+            submitted = self.submit(customer)
+            self.assertEqual(submitted.status_code, 201, submitted.data)
+            self.assertIsNone(submitted.data["task"])
+            self.assertEqual((submitted.data["task_type"], submitted.data["task_title"], submitted.data["status"]),
+                             ("coin_only", "Coin purchase", "pending"))
+            self.assertTrue(submitted.data["bill_url"])
+            self.assertFalse(TaskProgress.objects.filter(profile=profile).exists())
+
+            self.as_owner()
+            pending = self.client.get("/api/owner/pending/")
+            self.assertEqual((pending.status_code, pending.data[0]["id"]), (200, submitted.data["id"]))
+            self.assertEqual(pending.data[0]["task_type"], "coin_only")
+            approved = self.client.post(f"/api/entries/{submitted.data['id']}/review/", {"action": "approve"})
+            self.assertEqual(approved.status_code, 200, approved.data)
+            account = CoinAccount.objects.get(profile=profile)
+            self.assertEqual(account.balance, 23)
+
+            reversed_entry = self.client.post(f"/api/entries/{submitted.data['id']}/reverse/")
+            self.assertEqual(reversed_entry.status_code, 200, reversed_entry.data)
+            account.refresh_from_db()
+            self.assertEqual(account.balance, 0)
+
+    def test_bill_is_required_and_coin_program_must_be_enabled(self):
+        customer = self.customer("9100000031")
+        self.client.credentials(HTTP_AUTHORIZATION=customer)
+        missing_bill = self.client.post(f"/api/b/{self.code}/coin-purchases/", {"amount": "40.00"}, format="multipart")
+        self.assertEqual(missing_bill.status_code, 400)
+        CoinProgram.objects.filter(business=self.biz).update(enabled=False)
+        disabled = self.submit(customer, "40.00")
+        self.assertEqual(disabled.status_code, 400)
+        self.assertFalse(PurchaseEntry.objects.filter(profile__user__username="9100000031").exists())
+
+    def test_declined_bill_does_not_award_coins(self):
+        customer = self.customer("9100000032")
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        with override_settings(MEDIA_ROOT=media.name):
+            submitted = self.submit(customer, "99.00")
+            self.assertEqual(submitted.status_code, 201, submitted.data)
+            self.as_owner()
+            rejected = self.client.post(f"/api/entries/{submitted.data['id']}/review/", {"action": "reject"})
+            self.assertEqual(rejected.status_code, 200, rejected.data)
+            self.assertFalse(CoinTransaction.objects.filter(purchase_entry_id=submitted.data["id"]).exists())
 
 
 class OfferAndBrandTests(GrowthBase):

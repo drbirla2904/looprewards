@@ -165,15 +165,23 @@ class CustomerProfile(models.Model):  # one global login, separate profile per b
 
 class PurchaseEntry(models.Model):
     profile = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="entries")
-    task = models.ForeignKey(Task, on_delete=models.CASCADE)
+    task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.CASCADE)
     value = models.DecimalField(max_digits=10, decimal_places=2, default=1)  # qty or amount
     status = models.CharField(max_length=10, default="pending")  # pending/approved/rejected/reversed
     bill_photo = models.ImageField(upload_to=_bill_path, blank=True)
+    bill_fingerprint = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
     reviewed_at = models.DateTimeField(null=True, blank=True)
     credited_value = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)  # value x boost, set on approval
     multiplier = models.PositiveSmallIntegerField(default=1)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("profile", "bill_fingerprint"),
+                                    condition=models.Q(bill_fingerprint__gt=""),
+                                    name="one_purchase_per_customer_bill"),
+        ]
 
 
 class TaskProgress(models.Model):

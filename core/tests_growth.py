@@ -1,16 +1,20 @@
 """Tests for the v2 growth layer: boosts, perks, referrals, tiers, segments, bookings, feedback, campaigns."""
+from io import BytesIO
 from datetime import timedelta
 from decimal import Decimal
 import json
 import tempfile
+import uuid
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from django.test import override_settings
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 from rest_framework.test import APITestCase
 
 from . import engage
-from .models import (Booking, Boost, Business, CustomerProfile, Feedback, Notification, PurchaseEntry, Reward,
+from .models import (Booking, Boost, Business, CoinProgram, CustomerProfile, Feedback, Notification, PurchaseEntry, Reward,
                      RewardGrant, ShopOffer, ShopOfferItem, TaskProgress, User)
 
 
@@ -41,7 +45,14 @@ class GrowthBase(APITestCase):
     def buy(self, cust_tok, task=None, value=1):
         """customer submits, owner approves; returns the entry id"""
         self.client.credentials(HTTP_AUTHORIZATION=cust_tok)
-        r = self.client.post("/api/entries/", {"task": (task or self.visit_task).id, "value": value})
+        data = {"task": (task or self.visit_task).id, "value": value}
+        if CoinProgram.objects.filter(business=self.biz, enabled=True).exists():
+            metadata = PngInfo()
+            metadata.add_text("purchase", uuid.uuid4().hex)
+            image = BytesIO()
+            Image.new("RGB", (4, 4), "white").save(image, format="PNG", pnginfo=metadata)
+            data["bill_photo"] = SimpleUploadedFile("bill.png", image.getvalue(), content_type="image/png")
+        r = self.client.post("/api/entries/", data, format="multipart")
         self.assertEqual(r.status_code, 201, r.data)
         self.as_owner()
         self.client.post(f"/api/entries/{r.data['id']}/review/", {"action": "approve"})

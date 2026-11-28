@@ -770,6 +770,20 @@ body{font-size:calc(15px * var(--font-scale,1))}
 @keyframes fxrise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .coin-pass{flex-direction:column;align-items:stretch}
 .coin-pass>.row{justify-content:space-between}
+
+.coin-collect{
+  display:grid;gap:12px;padding:15px;
+  border:1px solid #eadcae;border-radius:16px;
+  background:linear-gradient(135deg,#fff9e8,#fff 72%)
+}
+.coin-collect .btn{width:100%}
+.coin-purchase-pending{
+  display:grid;gap:6px;padding:10px 12px;
+  border-radius:12px;background:#fff2cf;color:#654600;
+  font-size:calc(13px * var(--font-scale, 1))
+}
+.coin-purchase-pending .row{gap:8px;flex-wrap:wrap}
+.coin-purchase-pending .num{white-space:nowrap}
 .invite-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .invite-stats .kpi{padding:10px 8px;text-align:center}
 .invite-stats .kpi .v{font-size:calc(24px * var(--font-scale,.8))}

@@ -118,7 +118,8 @@ def customer_shop(request, code):
     st.update({
         "shop": biz.name, "shop_code": biz.shop_code, "live": biz.is_live, "consent": p.marketing_consent,
         "status": p.status, "bookings_enabled": biz.bookings_enabled,
-        "entries": [{"id": e.id, "task_title": e.task.title, "task_type": e.task.type, "value": str(e.value),
+        "entries": [{"id": e.id, "task_title": e.task.title if e.task_id else "Coin purchase",
+                     "task_type": e.task.type if e.task_id else "coin_only", "value": str(e.value),
                      "credited": str(e.credited_value if e.credited_value is not None else e.value),
                      "multiplier": e.multiplier, "status": e.status, "created_at": e.created_at,
                      "rated": hasattr(e, "feedback")} for e in entries[:15]],
@@ -150,6 +151,10 @@ def customer_shop(request, code):
         "history": [{"id": t.id, "delta": t.delta, "kind": t.kind, "reason": t.reason,
                      "title": t.redemption.reward.title if t.redemption_id else "",
                      "at": t.created_at} for t in history],
+        "pending_purchases": [{
+            "id": e.id, "amount": str(e.value), "created_at": e.created_at,
+        } for e in p.entries.filter(task__isnull=True, status="pending").order_by("-created_at")[:3]
+            ] if coins_enabled else [],
         "redemptions": [{
             "id": r.id, "title": r.reward.title, "coins": r.coins_cost, "status": r.status,
             "code": f"CR-{r.id:05d}", "requested_at": r.requested_at,
@@ -332,7 +337,8 @@ def customer_detail(request, code, pid):
         "status": p.status, "note": p.note, "joined_at": p.joined_at, "marketing_consent": p.marketing_consent,
         "visits": st["visits"], "last_visit": st["last_visit"], "tier": st["tier"], "streak": st["streak"],
         "rewards": st["rewards"][:10], "tasks": st["tasks"],
-        "entries": [{"id": e.id, "task_title": e.task.title, "value": str(e.value), "status": e.status,
+        "entries": [{"id": e.id, "task_title": e.task.title if e.task_id else "Coin purchase",
+                     "value": str(e.value), "status": e.status,
                      "created_at": e.created_at, "multiplier": e.multiplier}
                     for e in p.entries.select_related("task").order_by("-created_at")[:15]],
         "ratings": FeedbackSerializer(p.feedback.order_by("-created_at")[:5], many=True).data,

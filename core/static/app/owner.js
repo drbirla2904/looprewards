@@ -175,7 +175,7 @@
   };
 
   /* ---------- Today: the action queue ---------- */
-  const typeVal = e => (e.task_type === 'amount' ? FX.rupee(e.value) : e.task_type === 'count' ? '×' + FX.num(e.value) : t('Visit'));
+  const typeVal = e => (e.task_type === 'amount' || e.task_type === 'coin_only' ? FX.rupee(e.value) : e.task_type === 'count' ? '×' + FX.num(e.value) : t('Visit'));
   function queueRow(e, onDone) {
     const review = (action, button, close) => busy(button.currentTarget || button.target, async () => {
       await api('entries/' + e.id + '/review/', 'POST', { action });
@@ -196,7 +196,7 @@
       FX.avatar(e.customer, e.customer_image_url),
       h('div.approval-copy',
         h('div.approval-heading', h('b', e.customer || t('Customer')), pill(t('Purchase review'), 'info')),
-        h('div.approval-details', h('span', e.task_title), h('span', typeVal(e)), h('span', FX.ago(e.created_at))),
+        h('div.approval-details', h('span', e.task_type === 'coin_only' ? t('Coin purchase') : e.task_title), h('span', typeVal(e)), h('span', FX.ago(e.created_at))),
         e.far ? pill(t('Far from shop ({m} m)', { m: Math.round(e.distance_m || 0) }), 'warn') : null,
         e.bill_url ? h('button.btn.ghost.sm.bill-action', { type: 'button', onclick: showBill }, t('View bill')) : null),
       h('div.approval-actions', h('button.btn.ghost.sm', { onclick: act('reject') }, t('Decline')),

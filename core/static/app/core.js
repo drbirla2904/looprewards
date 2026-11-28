@@ -512,6 +512,19 @@
     const dec = () => { S.unread = Math.max(0, (S.unread || 0) - 1); drawNav(); };
     try {
       const items = await api('notifications/');
+      if (items.some(n => !n.read)) {
+        try {
+          await api('notifications/read/', 'POST', {});
+          items.forEach(n => { n.read = true; });
+          S.unread = 0;
+          drawNav();
+        } catch (e) {
+          toast(e.message, true);
+        }
+      } else {
+        S.unread = 0;
+        drawNav();
+      }
       const unreadCount = items.filter(n => !n.read).length;
       summary.textContent = unreadCount
         ? t('{n} unread notification(s)', { n: unreadCount })

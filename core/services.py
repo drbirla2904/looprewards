@@ -1,6 +1,7 @@
 """Business rules: submit / review purchases, progress, reward grants, redemption."""
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+import hashlib
 import secrets
 from django.db import transaction
 from django.utils import timezone
@@ -17,6 +18,38 @@ def _log(business, actor, action, ref=""):
     AuditLog.objects.create(business=business, actor=actor, action=action, ref=str(ref))
 
 
+def _check_entry_limits(profile, *, enforce_cooldown=True):
+    biz = profile.business
+    now = timezone.now()
+    mine = PurchaseEntry.objects.select_for_update().filter(profile=profile).exclude(status="rejected")
+    last = mine.order_by("-created_at").first()
+    if enforce_cooldown and last and now - last.created_at < timedelta(minutes=biz.cooldown_minutes):
+        raise ValidationError(f"Please wait {biz.cooldown_minutes} minutes between entries.")
+    if mine.filter(created_at__date=timezone.localdate()).count() >= biz.daily_cap:
+        raise ValidationError("Daily entry limit reached.")
+
+
+def _bill_fingerprint(bill_photo):
+    if not bill_photo:
+        return ""
+    digest = hashlib.sha256()
+    bill_photo.seek(0)
+    for chunk in bill_photo.chunks():
+        digest.update(chunk)
+    bill_photo.seek(0)
+    return digest.hexdigest()
+
+
+def _ensure_new_bill(profile, bill_photo):
+    if not bill_photo:
+        return ""
+    CustomerProfile.objects.select_for_update().get(pk=profile.pk)
+    fingerprint = _bill_fingerprint(bill_photo)
+    if PurchaseEntry.objects.filter(profile=profile, bill_fingerprint=fingerprint).exists():
+        raise ValidationError("This bill has already been submitted for this shop.")
+    return fingerprint
+
+
 @transaction.atomic
 def submit_entry(profile, task, value, bill_photo=None, counter_code="", lat=None, lng=None):
     biz = profile.business
@@ -24,13 +57,7 @@ def submit_entry(profile, task, value, bill_photo=None, counter_code="", lat=Non
         raise PermissionDenied("You cannot earn rewards at this shop.")
     if not biz.is_live or not task.program.active or task.program.business_id != biz.id:
         raise ValidationError("This offer is not active.")
-    now = timezone.now()
-    mine = PurchaseEntry.objects.filter(profile=profile).exclude(status="rejected")
-    last = mine.order_by("-created_at").first()
-    if last and now - last.created_at < timedelta(minutes=biz.cooldown_minutes):
-        raise ValidationError(f"Please wait {biz.cooldown_minutes} minutes between entries.")
-    if mine.filter(created_at__date=timezone.localdate()).count() >= biz.daily_cap:
-        raise ValidationError("Daily entry limit reached.")
+    _check_entry_limits(profile)
     if task.type == "visit":
         value = Decimal("1")
     else:
@@ -48,8 +75,10 @@ def submit_entry(profile, task, value, bill_photo=None, counter_code="", lat=Non
     if None not in (lat, lng, biz.lat, biz.lng):
         dist = int(_dist_m(lat, lng, biz.lat, biz.lng))
         far = dist > biz.max_distance_m  # soft check: flagged for the owner, never auto-approved
-    if biz.require_bill_photo and not bill_photo:
+    coins_enabled = CoinProgram.objects.filter(business=biz, enabled=True).exists()
+    if (biz.require_bill_photo or coins_enabled) and not bill_photo:
         raise ValidationError("Please attach the bill photo.")
+    bill_fingerprint = _ensure_new_bill(profile, bill_photo)
     step = None
     if counter_code:
         step = counter.match(biz, counter_code)
@@ -59,7 +88,8 @@ def submit_entry(profile, task, value, bill_photo=None, counter_code="", lat=Non
             raise ValidationError("You already used this code.")
         if CodeUse.objects.filter(business=biz, step=step).count() >= 20:
             raise ValidationError("This code was used too many times. Ask for the new code.")
-    entry = PurchaseEntry.objects.create(profile=profile, task=task, value=value, bill_photo=bill_photo or "", far=far, distance_m=dist)
+    entry = PurchaseEntry.objects.create(profile=profile, task=task, value=value, bill_photo=bill_photo or "",
+                                         bill_fingerprint=bill_fingerprint, far=far, distance_m=dist)
     _log(biz, profile.user, "entry_submitted", entry.id)
     if step is not None:
         CodeUse.objects.create(business=biz, step=step, profile=profile)
@@ -70,6 +100,34 @@ def submit_entry(profile, task, value, bill_photo=None, counter_code="", lat=Non
     else:
         for u in [biz.owner] + [s.user for s in biz.staff.all()]:
             push(u, f"New purchase pending: {profile.user.first_name or profile.user.username} - {task.title}" + (" (far from shop)" if far else ""), link="/app/#/")
+    return entry
+
+
+@transaction.atomic
+def submit_coin_purchase(profile, amount, bill_photo, lat=None, lng=None):
+    biz = profile.business
+    if profile.status == "blocked":
+        raise PermissionDenied("You cannot collect coins at this shop.")
+    if not biz.is_live:
+        raise ValidationError("This shop is not accepting purchases right now.")
+    if not CoinProgram.objects.filter(business=biz, enabled=True).exists():
+        raise ValidationError("Coin collection is not enabled at this shop.")
+    if not bill_photo:
+        raise ValidationError("Attach a photo of your bill to collect coins.")
+    _check_entry_limits(profile, enforce_cooldown=False)
+    bill_fingerprint = _ensure_new_bill(profile, bill_photo)
+    far, dist = False, None
+    if None not in (lat, lng, biz.lat, biz.lng):
+        dist = int(_dist_m(lat, lng, biz.lat, biz.lng))
+        far = dist > biz.max_distance_m
+    entry = PurchaseEntry.objects.create(
+        profile=profile, task=None, value=amount, bill_photo=bill_photo, bill_fingerprint=bill_fingerprint,
+        far=far, distance_m=dist,
+    )
+    _log(biz, profile.user, "coin_purchase_submitted", entry.id)
+    for user in [biz.owner] + [staff.user for staff in biz.staff.select_related("user")]:
+        push(user, f"Coin purchase bill to verify: {profile.user.first_name or profile.user.username} · ₹{amount}",
+             link="/app/#/")
     return entry
 
 
@@ -88,7 +146,8 @@ def review_entry(entry, actor, approve):
     push(entry.profile.user, f"{biz.name}: your purchase was {entry.status}.", link=f"/b/{biz.shop_code}/?tab=earn")
     if approve:
         issue_purchase_rewards(entry)
-        _apply_progress(entry)
+        if entry.task_id:
+            _apply_progress(entry)
         engage.after_approval(entry.profile)
     return entry
 
@@ -99,7 +158,7 @@ def issue_purchase_rewards(entry):
     config = CoinProgram.objects.select_for_update().filter(business=biz, enabled=True).first()
     if config:
         # amount tasks earn per rupee spent; visit/count tasks earn a flat number of coins per approved entry
-        if entry.task.type == "amount":
+        if entry.task_id is None or entry.task.type == "amount":
             coins = int(entry.value // config.spend_per_coin) if config.spend_per_coin else 0
         else:
             coins = config.visit_coins
@@ -250,14 +309,15 @@ def reverse_entry(entry, actor):
         raise ValidationError("Only approved entries can be undone.")
     if not entry.reviewed_at or timezone.now() > entry.reviewed_at + timedelta(seconds=5):
         raise ValidationError("The 5-second undo window has expired.")
-    if PurchaseEntry.objects.filter(
-        profile=entry.profile, task=entry.task, status="approved", reviewed_at__gt=entry.reviewed_at,
-    ).exists():
-        raise ValidationError("A newer purchase has already been approved for this task.")
-    if RewardGrant.objects.select_for_update().filter(
-        profile=entry.profile, reward__task=entry.task, status="used", issued_at__gte=entry.reviewed_at,
-    ).exists():
-        raise ValidationError("This purchase cannot be undone because its reward was already redeemed.")
+    if entry.task_id:
+        if PurchaseEntry.objects.filter(
+            profile=entry.profile, task=entry.task, status="approved", reviewed_at__gt=entry.reviewed_at,
+        ).exists():
+            raise ValidationError("A newer purchase has already been approved for this task.")
+        if RewardGrant.objects.select_for_update().filter(
+            profile=entry.profile, reward__task=entry.task, status="used", issued_at__gte=entry.reviewed_at,
+        ).exists():
+            raise ValidationError("This purchase cannot be undone because its reward was already redeemed.")
     ticket = ScratchTicket.objects.select_for_update().filter(purchase_entry=entry).first()
     if ticket and ticket.revealed_at:
         raise ValidationError("This purchase cannot be undone after its scratch card was revealed.")
@@ -267,18 +327,19 @@ def reverse_entry(entry, actor):
         account = CoinAccount.objects.select_for_update().get(pk=coin_tx.account_id)
         if account.balance < coin_tx.delta:
             raise ValidationError("This purchase cannot be undone because some earned coins have already been spent.")
-    task = entry.task
-    prog = TaskProgress.objects.select_for_update().get(profile=entry.profile, task=task)
-    tgt = prog.target or task.target
-    prog.current_value -= entry.credited_value if entry.credited_value is not None else entry.value
-    while prog.current_value < 0 and prog.completed_count > 0:
-        prog.completed_count -= 1
-        prog.current_value += tgt
-        g = RewardGrant.objects.filter(profile=entry.profile, reward__task=task, status="active").order_by("-id").first()
-        if g:
-            g.status = "revoked"; g.save()
-    prog.current_value = max(prog.current_value, 0)
-    prog.save()
+    if entry.task_id:
+        task = entry.task
+        prog = TaskProgress.objects.select_for_update().get(profile=entry.profile, task=task)
+        tgt = prog.target or task.target
+        prog.current_value -= entry.credited_value if entry.credited_value is not None else entry.value
+        while prog.current_value < 0 and prog.completed_count > 0:
+            prog.completed_count -= 1
+            prog.current_value += tgt
+            g = RewardGrant.objects.filter(profile=entry.profile, reward__task=task, status="active").order_by("-id").first()
+            if g:
+                g.status = "revoked"; g.save()
+        prog.current_value = max(prog.current_value, 0)
+        prog.save()
     if coin_tx:
         account.balance -= coin_tx.delta
         account.save(update_fields=["balance", "updated_at"])

@@ -125,11 +125,17 @@ class ProgramSerializer(serializers.ModelSerializer):
 class EntrySerializer(serializers.ModelSerializer):
     customer = serializers.CharField(source="profile.user.first_name", read_only=True)
     customer_image_url = serializers.SerializerMethodField()
-    task_title = serializers.CharField(source="task.title", read_only=True)
-    task_type = serializers.CharField(source="task.type", read_only=True)
+    task_title = serializers.SerializerMethodField()
+    task_type = serializers.SerializerMethodField()
 
     shop_code = serializers.CharField(source="profile.business.shop_code", read_only=True)
     bill_url = serializers.SerializerMethodField()
+
+    def get_task_title(self, o):
+        return o.task.title if o.task_id else "Coin purchase"
+
+    def get_task_type(self, o):
+        return o.task.type if o.task_id else "coin_only"
 
     def get_bill_url(self, o):
         return o.bill_photo.url if o.bill_photo else ""
@@ -149,6 +155,17 @@ class ProfileImageSerializer(serializers.Serializer):
     def validate_profile_image(self, image):
         if image.size > 5 * 1024 * 1024:
             raise serializers.ValidationError("Profile photos must be 5 MB or smaller.")
+        return image
+
+
+class CoinPurchaseSubmitSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0.01,
+                                      max_value=99999999.99)
+    bill_photo = serializers.ImageField()
+
+    def validate_bill_photo(self, image):
+        if image.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError("Bill photos must be 5 MB or smaller.")
         return image
 
 

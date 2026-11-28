@@ -14,6 +14,7 @@ urlpatterns = [
     path("b/<str:code>/regenerate-qr/", v.regenerate_qr),
     path("b/<str:code>/programs/", v.create_program),
     path("b/<str:code>/join/", v.join),
+    path("b/<str:code>/coin-purchases/", v.submit_coin_purchase),
     path("b/<str:code>/staff/", v.staff),
     path("b/<str:code>/counter-code/", v.counter_code),
     path("b/<str:code>/cqr.png", v.counter_qr),
