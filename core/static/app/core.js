@@ -2,7 +2,7 @@
 (function (FX) {
   'use strict';
   const t = FX.t;
-  const S = FX.S = { token: localStorage.t || '', role: localStorage.r || '', user: null, shops: [], biz: null, sub: null, nav: 0, unread: 0, pending: 0 };
+  const S = FX.S = { token: localStorage.t || '', role: localStorage.r || '', user: null, shops: [], biz: null, sub: null, nav: 0, unread: 0, pending: 0, notificationIds: null };
   FX.routes = { customer: {}, owner: {}, staff: {}, vendor: {} };
 
   /* ---------------- DOM ---------------- */
@@ -129,14 +129,38 @@
   };
 
   /* ---------------- overlays ---------------- */
-  function toast(msg, bad, action) {
+  function toast(msg, bad, action, kind) {
+    const marks = { coin: '🪙', scratch: '🎟️', reward: '🎁', booking: '📅', notification: '🔔' };
     const el = h('div.toast' + (bad ? '.bad' : ''), { role: bad ? 'alert' : 'status' },
-      h('span.toast-mark', { 'aria-hidden': 'true' }, bad ? '!' : '✓'),
+      h('span.toast-mark' + (kind ? '.' + kind : ''), { 'aria-hidden': 'true' }, bad ? '!' : marks[kind] || '✓'),
       h('span.toast-message', msg),
       action ? h('button.toast-action', { onclick: () => { el.remove(); action.fn(); } }, action.label) : null);
     $('#toasts').appendChild(el);
     setTimeout(() => el.remove(), action ? 6500 : 4200);
     return el;
+  }
+  function activityToast(items) {
+    const list = Array.isArray(items) ? items : [items];
+    const highlights = list.filter(item => /coin|scratch|reward|won/i.test(item.text || ''));
+    const visible = highlights.length ? highlights.slice(0, 3) : list.slice(0, 1);
+    if (!visible.length) return;
+    const category = text => /scratch/i.test(text) ? 'scratch' : /coin/i.test(text) ? 'coin' :
+      /reward|won|gift/i.test(text) ? 'reward' : /booking|appointment/i.test(text) ? 'booking' : 'notification';
+    const format = item => {
+      const text = String(item.text || '');
+      const scratch = /^Scratch card ready at (.+)\.$/i.exec(text);
+      if (scratch) return t('Scratch card ready at {shop}.', { shop: scratch[1] });
+      const coins = /^You earned (\d+) coins? at (.+)\.$/i.exec(text);
+      if (coins) return t('You earned {n} coins at {shop}.', { n: coins[1], shop: coins[2] });
+      return FX.tr(text);
+    };
+    const kind = category(visible[0].text || '');
+    const message = visible.map(format).join(' · ');
+    const target = visible.find(item => item.link) || visible[0];
+    toast(message, false, {
+      label: t('Open'),
+      fn: () => target.link ? FX.openLink(target.link) : FX.inbox()
+    }, kind);
   }
   function modal(title, body, opts) {
     opts = opts || {};
@@ -269,14 +293,16 @@
     btn.disabled = true;
     try { return await fn(); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
   }
-  Object.assign(FX, { toast, modal, confirmBox, busy });
+  Object.assign(FX, { toast, activityToast, modal, confirmBox, busy });
 
   /* ---------------- components ---------------- */
   const field = (label, input, hint) => h('label.field', h('span', t(label)), input, hint ? h('small', t(hint)) : null);
   const inp = (props) => h('input', Object.assign({ placeholder: props && props.ph ? t(props.ph) : null }, props, { ph: null }));
   const sel = (opts, value, props) => h('select', Object.assign({ value }, props), opts.map(o => h('option', { value: o[0], selected: String(o[0]) === String(value) }, t(o[1]))));
   const pill = (txt, kind) => h('span.pill' + (kind ? '.' + kind : ''), txt);
-  const empty = (title, sub, action) => h('div.empty', h('b', t(title)), sub ? h('p', t(sub)) : null, action || null);
+  const empty = (title, sub, action) => h('div.empty',
+    h('div.empty-art', { 'aria-hidden': 'true' }, h('span.empty-spark', '✦'), h('span.empty-spark.small', '✦'), h('span.empty-dot')),
+    h('b', t(title)), sub ? h('p', t(sub)) : null, action || null);
   const kpi = (label, value, note) => h('div.kpi', h('div.l', t(label)), h('div.v', value), note ? h('div.d', note) : null);
   const avatar = (name, img) => h('div.avatar', img ? h('img', { src: img, alt: '' }) : initial(name));
   const chips = (items, current, onPick) => h('div.chips', items.map(([k, label, n]) => h('button.chip', { type: 'button', 'aria-pressed': String(k === current), onclick: () => onPick(k) }, t(label), n != null ? h('b', n) : null)));
@@ -454,6 +480,22 @@
   /* A tapped notification goes where it points. Only in-app paths are followed (the server also enforces this). */
   FX.openLink = function (link) {
     if (typeof link !== 'string' || link[0] !== '/' || link.startsWith('//') || /[\\:]/.test(link.split('#')[0])) return;
+    if (S.role === 'customer') {
+      const target = new URL(link, location.origin);
+      const shop = /^\/b\/([a-z0-9]{6})\/?$/i.exec(target.pathname);
+      if (shop) {
+        const params = new URLSearchParams();
+        for (const key of ['c', 'ref', 'tab']) {
+          const value = target.searchParams.get(key);
+          if (value && (key !== 'tab' || ['earn', 'rewards', 'book', 'history', 'invite', 'spin'].includes(value))) params.set(key, value);
+        }
+        const route = '#/shop/' + shop[1].toLowerCase() + (params.size ? '?' + params : '');
+        const same = location.hash === route;
+        location.hash = route;
+        if (same) FX.render(true);
+        return;
+      }
+    }
     const at = link.indexOf('#');
     if (link.startsWith('/app/') && location.pathname.startsWith('/app') && at >= 0) {
       const same = location.hash === link.slice(at);
@@ -533,9 +575,12 @@
       }
       const grew = pend > S.pending;
       const newRedemption = redemptionPend > (S.redemptionPending || 0);
+      const newNotifications = S.notificationIds === null ? [] : n.filter(item => !S.notificationIds.has(item.id));
+      S.notificationIds = new Set(n.map(item => item.id));
       if (unread !== S.unread || pend !== S.pending || redemptionPend !== (S.redemptionPending || 0)) {
         S.unread = unread; S.pending = pend; S.redemptionPending = redemptionPend; drawNav();
       }
+      if (newNotifications.length) FX.activityToast(newNotifications);
       if (grew) {
         toast(t(newRedemption ? 'A customer requested to redeem a reward.' : 'A customer is waiting for approval.'));
         if (curPath() === '') FX.render(true);
@@ -550,7 +595,8 @@
     const y = window.scrollY, tk = ++S.nav;
     const parts = location.hash.replace(/^#\/?/, '').split('/'), seg = parts[0] || '', args = parts.slice(1);
     drawNav();
-    if (!keepScroll) view.replaceChildren(FX.skel());
+    view.setAttribute('aria-busy', 'true');
+    if (!view.childElementCount) view.replaceChildren(FX.skel());
     let node;
     try {
       let fn = (FX.routes[S.role] || {})[seg];
@@ -558,6 +604,7 @@
       node = await (fn || FX.routes[S.role][''])(args);
     } catch (e) { node = h('div.card', h('p.err', e.message), h('button.btn.ghost', { onclick: () => FX.render() }, t('Try again'))); }
     if (tk !== S.nav) return;
+    view.removeAttribute('aria-busy');
     if (!keepScroll && node && node.classList) node.classList.add('enter');
     view.replaceChildren(node);
     window.scrollTo(0, keepScroll ? y : 0);
@@ -596,7 +643,7 @@
     if (!S.token) { $('#root').replaceChildren(shopCode ? await FX.publicShop(shopCode) : (FX.landing ? await FX.landing() : FX.authScreen({}))); return; }
     try { await loadShops(); if (S.role === 'owner') await FX.loadSub().catch(() => {}); } catch (e) { /* shown by route */ }
     layout(); poll();
-    if (shopCode && S.role === 'customer') { $('#view').replaceChildren(await FX.shopPage(shopCode)); return; }
+    if (shopCode && S.role === 'customer' && !location.hash) { $('#view').replaceChildren(await FX.shopPage(shopCode)); return; }
     if (shopCode) { location.replace('/app/'); return; }
     FX.render();
   };
@@ -609,7 +656,7 @@
     const box = h('div.form');
     const wrap = h('div.auth', h('section.hero', h('a.logo', { href: '/app/', style: 'color:#fff' }, h('img', { src: '/icon.svg', alt: '' }), 'OFFLet'),
       h('h1', t('Give customers a reason to come back.')),
-      h('p', t('Stamp cards, rewards and bookings for local shops, salons and studios. Customers scan a QR code. No app to install.')),
+      h('p', t('Loyalty rewards and bookings for local businesses. Customers scan a QR code. No app needed.')),
       h('div.demo-card', h('div.row.between', h('b', 'Chai Point'), h('span.pill.gold', t('Gold'))), h('div.stamps', [1, 2, 3, 4, 5, 6].map(i => h('div.stamp' + (i <= 4 ? '.on' : '') + (i === 6 ? '.gift' : ''), i <= 4 ? h('span', '✓') : i === 6 ? h('span', '🎁') : null))), h('small', t('2 more visits for a free chai')))), box);
     function draw() {
       const err = h('div.err', { role: 'alert' });

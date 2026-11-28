@@ -52,13 +52,14 @@
   /* ---------- home: one punch card per shop ---------- */
   function shopCard(s) {
     const b = s.best, tier = s.tier;
-    return h('a.shopcard' + (s.active_rewards ? '.ready' : ''), { href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color), 'aria-label': s.shop },
+    return h('a.shopcard' + (s.active_rewards ? '.ready' : ''), { href: '#/shop/' + s.shop_code, style: FX.shopVars(s.brand_color), 'aria-label': s.shop },
       h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.shop)), h('div.grow', h('h3', s.shop), ratingSummary(s), h('small.shop-category', FX.lang === 'hi' ? s.category_label_hi : s.category_label)),
         tierPill(tier.tier)),
       b ? h('div.stack.s', h('div.row.between', h('small', b.title), h('small.num', FX.fmtVal(b.type, b.current) + ' / ' + FX.fmtVal(b.type, b.target))),
         stampRow(b.current, b.target, b.type) || h('div.meter', h('i', { style: { width: b.pct + '%' } })),
         b.rewards[0] ? h('small', t('Reward: {r}', { r: b.rewards[0].title })) : null) : h('small', t('Make your first purchase to start collecting.')),
       h('div.meta', s.active_rewards ? h('span.pill.glow', '🎁 ' + t('{n} reward ready', { n: s.active_rewards })) : null,
+        s.coins != null && s.coins > 0 ? h('span.pill', '🪙 ' + t('{n} coins', { n: s.coins })) : null,
         s.streak ? h('span.pill', '🔥 ' + t('{n}-week streak', { n: s.streak })) : null,
         s.boosts_now[0] ? h('span.pill', '⚡ ' + s.boosts_now[0].multiplier + 'x ' + t('today')) : null,
         s.next_booking ? h('span.pill', '📅 ' + FX.fmtDT(s.next_booking.starts_at)) : null,
@@ -78,7 +79,7 @@
         if (userLoc) { params.set('lat', userLoc.lat); params.set('lng', userLoc.lng); }
         const r = await api('shops/discover/?' + params.toString());
         discoverBox.replaceChildren(...(r.shops.length ? r.shops.map(s => h('a.shopcard', {
-          href: '/b/' + s.shop_code + '/', style: FX.shopVars(s.brand_color)
+          href: '#/shop/' + s.shop_code, style: FX.shopVars(s.brand_color)
         }, h('div.row', h('div.logo-s', s.logo_url ? h('img', { src: s.logo_url, alt: '' }) : FX.initial(s.name)),
           h('div.grow', h('h3', s.name), ratingSummary(s), h('small.shop-category', FX.lang === 'hi' ? s.category_label_hi : s.category_label)),
           s.distance_km != null ? h('small.pill', s.distance_km < 1 ? '< 1 km' : s.distance_km + ' km') : null),
@@ -170,9 +171,15 @@
       w.shops.length ? h('div.g2', w.shops.map(shopCard)) : how,
       h('div.card.stack', h('div.row.between', h('h3', t('Discover shops')), nearbyBtn),
         h('div.row', search), discoverBox),
-      h('div.card.stack', h('h3', t('Add a shop by code')), h('div.row', code, h('button.btn', { onclick: () => { const c = code.value.trim(); if (c) location.href = '/b/' + encodeURIComponent(c) + '/'; } }, t('Open')))),
+      h('div.card.stack', h('h3', t('Add a shop by code')), h('div.row', code, h('button.btn', { onclick: () => { const c = code.value.trim(); if (c) FX.go('shop/' + encodeURIComponent(c)); } }, t('Open')))),
       h('div.card.stack', h('div', h('h3', t('Support OFFLet')), h('p.muted.small', t('OFFLet is free for customers. Your voluntary support helps keep it available.'))),
         h('button.btn.soft.block', { onclick: supportOfflet }, t('Donate to OFFLet'))));
+  };
+  R.shop = async function (args) {
+    const [codeAndQuery = ''] = args;
+    const [code, query = ''] = codeAndQuery.split('?');
+    const params = new URLSearchParams(query);
+    return FX.shopPage(code, params.get('tab'), params.get('ref'));
   };
 
   /* ---------- logged-out shop page (QR landing) ---------- */
@@ -195,9 +202,12 @@
   function offerCatalog(biz) {
     if (!biz.offers || !biz.offers.length) return null;
     return h('div.card.stack', h('h2', t('Shop offers')), biz.offers.map(offer => {
-      const label = offer.offer_type === 'percent_off' ? offer.value + '% off' :
+      const label = offer.offer_type === 'percent_off' ? Number(offer.value) + '% off' :
         offer.offer_type === 'fixed_price' ? t('Fixed price') : t('Buy 1 get 1');
-      return h('div.offer-group.stack.s', h('span.offer-badge', label),
+      const left = offer.ends_on ? Math.ceil((new Date(offer.ends_on + 'T23:59:59') - Date.now()) / 864e5) : null;
+      return h('div.offer-group.stack.s', h('div.row.between.wrap', h('span.offer-badge', label),
+        left != null ? h('span.offer-left' + (left <= 2 ? '.hot' : ''), left <= 0 ? t('Ends today') : left === 1 ? t('1 day left') : t('{n} days left', { n: left })) : null),
+        offer.title ? h('b.offer-title', offer.title) : null,
         h('div.offer-customer-items', offer.items.map(item => {
         const price = Number(item.price), current = offer.offer_type === 'percent_off' ? price * (1 - Number(offer.value) / 100) : Number(item.offer_price);
         return h('div.offer-customer-item', item.image ? h('img.offer-thumb', { src: item.image, alt: item.name }) : null,
@@ -233,11 +243,11 @@
   }
 
   /* ---------- logged-in shop page ---------- */
-  FX.shopPage = async function (code, tab) {
+  FX.shopPage = async function (code, tab, referral) {
     let biz = await api('b/' + code + '/'), me;
     if (biz.paused) return empty(biz.name, 'This shop is not taking rewards right now.');
     try { me = await api('me/shop/' + code + '/'); } catch (e) { me = null; }
-    if (!me) return joinView(biz);
+    if (!me) return joinView(biz, referral);
     let spinData = null;
     try { spinData = await api('b/' + code + '/spin/'); } catch (e) { /* A missing wheel is not an error on the shop page. */ }
     const asked = new URLSearchParams(location.search).get('tab');  // set when a notification is tapped
@@ -302,19 +312,41 @@
       const done = fresh.entries.filter(e => waiting.has(e.id) && e.status !== 'pending');
       if (!done.length) return;
       clearInterval(watcher);
-      await afterEntry(biz, fresh, seen, done.some(e => e.status === 'approved') ? 'approved' : 'rejected');
+      await afterEntry(biz, fresh, seen, done.some(e => e.status === 'approved') ? 'approved' : 'rejected', me);
     }, 6000);
   }
   async function refreshShop(code) { const v = document.querySelector('#view'); if (v) v.replaceChildren(await FX.shopPage(code)); }
-  /* one place decides the right celebration: reward unlocked > stamp added > declined > sent */
-  async function afterEntry(biz, me, seenCodes, status) {
+  /* Show every benefit from an approved visit together, then refresh the shop wallet. */
+  async function afterEntry(biz, me, seenCodes, status, previousMe) {
     const fresh = me.rewards.filter(g => g.status === 'active' && !seenCodes.has(g.code));
-    if (fresh.length) {
-      FX.celebrate({ icon: '🎁', big: true, title: t('Reward unlocked!'), text: fresh[0].title + (fresh.length > 1 ? ' +' + (fresh.length - 1) : ''),
-        actions: [[t('Show reward pass'), () => passModal(fresh[0], biz.brand_color, biz.name)]] });
-    } else if (status === 'approved') {
+    if (status === 'approved') {
+      const oldTickets = new Set((previousMe && previousMe.scratch_tickets || []).map(ticket => ticket.id));
+      const newTickets = (me.scratch_tickets || []).filter(ticket => !oldTickets.has(ticket.id));
+      const coinGain = Math.max(0, Number(me.coins && me.coins.balance || 0) - Number(previousMe && previousMe.coins && previousMe.coins.balance || 0));
+      const moments = [
+        ...fresh.map(grant => ['🎁', grant.title]),
+        ...(coinGain ? [['🪙', t('Coins earned') + ': +' + coinGain]] : []),
+        ...(newTickets.length ? [['🎟️', t(newTickets.length === 1 ? 'Scratch card ready' : '{n} scratch cards ready', { n: newTickets.length })]] : [])
+      ];
+      const actions = [];
+      if (fresh.length) actions.push([t('Show reward pass'), () => passModal(fresh[0], biz.brand_color, biz.name)]);
+      if (newTickets.length) actions.push([t('Scratch now'), () => {
+        sessionStorage['tab_' + biz.shop_code] = 'rewards';
+        FX.go('shop/' + biz.shop_code + '?tab=rewards');
+      }]);
       const b = me.best;
-      FX.celebrate({ icon: '✅', ok: true, title: t('Stamp added!'), text: b && b.rewards[0] ? t('{p}% of the way to: {r}', { p: Math.round(b.pct), r: b.rewards[0].title }) : '' });
+      const title = fresh.length ? t('Reward unlocked!') : newTickets.length ? t('Scratch card ready') :
+        coinGain ? t('Coins earned') : t('Stamp added!');
+      FX.celebrate({
+        icon: fresh.length ? '🎁' : newTickets.length ? '🎟️' : coinGain ? '🪙' : '✅',
+        ok: !fresh.length && !newTickets.length && !coinGain,
+        big: Boolean(fresh.length || newTickets.length),
+        title,
+        text: moments.length ? '' : b && b.rewards[0] ? t('{p}% of the way to: {r}', { p: Math.round(b.pct), r: b.rewards[0].title }) : '',
+        body: moments.length ? h('div.activity-recap', moments.map(([icon, label]) =>
+          h('div.activity-recap-item', h('span', icon), h('b', label)))) : null,
+        actions
+      });
     } else if (status === 'rejected') {
       FX.toast(t('The shop could not confirm your last purchase.'), true);
     } else {
@@ -323,9 +355,9 @@
     await refreshShop(biz.shop_code);
   }
 
-  function joinView(biz) {
+  function joinView(biz, referral) {
     const consent = h('input', { type: 'checkbox', checked: true });
-    const ref = new URLSearchParams(location.search).get('ref') || '';
+    const ref = referral || new URLSearchParams(location.search).get('ref') || '';
     const perk = biz.perks && biz.perks.welcome;
     const socialPerk = biz.perks && biz.perks.social && SOCIALS.some(([key]) => biz[key]);
     return h('div.stack.l', { style: 'max-width:720px;margin:0 auto' }, head(biz), h('div.card.stack', h('h2', t('Join {shop}', { shop: biz.name })),
@@ -423,7 +455,7 @@
       try {
         const r = await api('entries/', 'POST', fd); m.close();
         const fresh = await api('me/shop/' + biz.shop_code + '/');
-        await afterEntry(biz, fresh, seen, r.status);
+        await afterEntry(biz, fresh, seen, r.status, me);
       } catch (x) { err.textContent = x.message; FX.haptic([30, 40, 30]); }
     }) }, h('span', '✓'), t(isVisit ? 'Confirm check-in' : 'Confirm'));
     const m = modal(tk.title, h('div.stack', h('div.grab'),
@@ -481,47 +513,91 @@
     g.status === 'active' ? h('details.code-fallback', h('summary.muted', t('Use code instead')), codePass) :
       h('div.stub', h('small.muted', t('Reward code')), h('div.code', g.code)));
   };
+  const coinWhy = (it) => it.kind === 'bonus' ? t(it.reason === 'welcome' ? 'Welcome bonus' : it.reason === 'referrer' ? 'A friend joined: referral bonus' : 'Joining bonus (invited by a friend)') :
+    it.kind === 'purchase' ? t('Earned from your visit') : it.kind === 'redemption' ? t('Spent on {item}', { item: it.title }) :
+    it.kind === 'refund' ? t('Returned: {item}', { item: it.title }) : t('Visit undone by the shop');
+  function coinRules(c) {
+    const r = c.rules || {}, out = [];
+    if (r.spend_per_coin) out.push(t('1 coin for every ₹{n} you spend', { n: r.spend_per_coin }));
+    if (r.visit_coins) out.push(t('{n} coins on every visit', { n: r.visit_coins }));
+    if (r.welcome_bonus) out.push(t('{n} welcome coins on your first purchase', { n: r.welcome_bonus }));
+    if (r.referrer_bonus) out.push(t('{n} coins for each friend you bring', { n: r.referrer_bonus }));
+    return out;
+  }
   function coinRewardsCard(coins, onChange) {
-    coins = coins || { enabled: false, balance: 0, rewards: [], redemptions: [] };
+    coins = coins || { enabled: false, balance: 0, rewards: [], redemptions: [], history: [] };
     if (!coins.enabled && !coins.balance && !coins.redemptions.length) return null;
-    return h('div.card.stack',
-      h('div.row.between', h('div', h('h3', t('Coin Rewards')), h('small.muted', t('Earn and spend coins at this shop.'))),
-        h('div.coin-balance', '🪙 ' + t('{n} coins', { n: coins.balance }))),
-      coins.enabled && coins.rewards.length ? coins.rewards.map(reward => h('div.li.coin-reward-row',
-        h('div.grow.stack.s', h('div.row.wrap', h('b', reward.title), pill(t('{n} coins', { n: reward.cost }), 'info')),
-          reward.description ? h('small.muted', reward.description) : null),
-        h('button.btn.sm', { disabled: coins.balance < reward.cost, onclick: async e => {
-          if (!await FX.confirmBox(t('Request {item} for {n} coins? The shop must approve it.', {
-            item: reward.title, n: reward.cost
-          }), t('Request item'))) return;
-          await busy(e.target, async () => {
-            await api('coin-rewards/' + reward.id + '/request/', 'POST', {});
-            toast(t('Coin redemption requested. The shop will review it.'));
-            await onChange();
-          });
-        } }, t('Request item')))) : coins.enabled ? empty('No coin rewards available', 'The shop has not added any coin rewards yet.') :
+    const next = coins.next_reward, rules = coinRules(coins), history = coins.history || [];
+    const pending = coins.redemptions.filter(r => r.status === 'pending');
+    return h('div.card.stack.coin-card',
+      h('div.coin-hero', h('div', h('small', t('Your coins')), h('div.coin-big', '🪙 ', h('span.num', String(coins.balance)))),
+        next ? h('div.coin-next', h('div.bar', h('i', { style: { width: next.pct + '%' } })),
+          h('small', t('{n} more coins to unlock {item}', { n: next.needed, item: next.title }))) :
+          coins.rewards.length ? h('small', '🎉 ' + t('You can afford every reward below')) : null),
+      rules.length ? h('div.coin-rules', rules.map(r => h('span.chip', r))) : null,
+      pending.map(r => h('div.coin-pass', h('div.stack.s', h('b', r.title), h('small.muted', t('Show this code to the shop') + ' · ' + t('{n} coins', { n: r.coins }))),
+        h('div.row', h('span.coin-code', r.code), h('button.btn.ghost.sm', { onclick: async e => {
+          if (!await FX.confirmBox(t('Cancel this request and get your {n} coins back?', { n: r.coins }), t('Cancel request'), true)) return;
+          await busy(e.target, async () => { await api('coin-redemptions/' + r.id + '/cancel/', 'POST', {}); toast(t('Request cancelled. Your coins are back.')); await onChange(); });
+        } }, t('Cancel'))))),
+      coins.enabled && coins.rewards.length ? coins.rewards.map(reward => {
+        const can = coins.balance >= reward.cost;
+        return h('div.li.coin-reward-row',
+          h('div.grow.stack.s', h('div.row.wrap', h('b', reward.title), pill(t('{n} coins', { n: reward.cost }), can ? 'ok' : 'info')),
+            reward.description ? h('small.muted', reward.description) : null,
+            can ? null : h('div.bar.thin', h('i', { style: { width: Math.min(100, Math.floor(100 * coins.balance / reward.cost)) + '%' } }))),
+          h('button.btn.sm', { disabled: !can, onclick: async e => {
+            if (!await FX.confirmBox(t('Request {item} for {n} coins? The shop must approve it.', { item: reward.title, n: reward.cost }), t('Request item'))) return;
+            await busy(e.target, async () => {
+              await api('coin-rewards/' + reward.id + '/request/', 'POST', {});
+              toast(t('Coin redemption requested. The shop will review it.'));
+              await onChange();
+            });
+          } }, can ? t('Get it') : t('{n} to go', { n: reward.cost - coins.balance })));
+      }) : coins.enabled ? empty('No coin rewards available', 'The shop has not added any coin rewards yet.') :
         h('p.small.muted', t('Coin redemption is paused by the shop.')),
-      coins.redemptions.length ? h('details', h('summary.muted', t('Coin redemption history')),
-        h('div.stack.s', { style: 'margin-top:10px' }, coins.redemptions.map(item => h('div.li',
-          h('div.grow', h('b', item.title), h('small.muted', t('{n} coins', { n: item.coins }))),
-          pill(t(item.status), item.status === 'approved' ? 'ok' : item.status === 'pending' ? 'warn' : ''))))) : null);
+      history.length ? h('details', h('summary.muted', t('Coin history')),
+        h('div.stack.s', { style: 'margin-top:10px' }, history.map(it => h('div.li',
+          h('div.grow', h('b', coinWhy(it)), h('small.muted', FX.fmtDT(it.at))),
+          h('b.num.coin-delta' + (it.delta > 0 ? '.up' : '.down'), (it.delta > 0 ? '+' : '') + it.delta))))) : null,
+      coins.redemptions.filter(r => r.status !== 'pending').length ? h('details', h('summary.muted', t('Coin redemption history')),
+        h('div.stack.s', { style: 'margin-top:10px' }, coins.redemptions.filter(r => r.status !== 'pending').map(item => h('div.li',
+          h('div.grow', h('b', item.title), h('small.muted', t('{n} coins', { n: item.coins }) + ' · ' + item.code)),
+          pill(t(item.status), item.status === 'approved' ? 'ok' : ''))))) : null);
   }
   function rewardsTab(biz, me) {
     const act = me.rewards.filter(g => g.status === 'active'), old = me.rewards.filter(g => g.status !== 'active');
     const coinCard = coinRewardsCard(me.coins, () => refreshShop(biz.shop_code));
     const tickets = me.scratch_tickets || [];
-    const scratchCard = tickets.length ? h('div.card.stack', h('h3', t('Scratch Cards')),
-      tickets.map(item => h('div.li', h('div.grow', h('b', item.revealed
-        ? item.is_winner ? '🎉 ' + t('You won: {prize}', { prize: item.prize_title }) : t('No prize this time')
-        : '🎟️ ' + t('Scratch card ready')),
-      item.revealed && item.reward_code ? h('small.muted', t('Reward code: {code}', { code: item.reward_code })) :
-        h('small.muted', FX.fmtDT(item.issued_at))),
-      item.revealed ? pill(t('Revealed'), item.is_winner ? 'ok' : '') :
-        h('button.btn.sm', { onclick: e => busy(e.target, async () => {
-          const result = await api('scratch-tickets/' + item.id + '/reveal/', 'POST', {});
-          toast(result.is_winner ? t('You won: {prize}', { prize: result.prize_title }) : t('No prize this time. Keep shopping!'));
-          FX.render(true);
-        }) }, t('Scratch now'))))) : null;
+    const scratchCard = tickets.length ? h('div.card.stack.scratch-cards',
+      h('div.row', h('span.scratch-section-icon', '🎟️'), h('h3', t('Scratch Cards')), pill(t('{n} ready', { n: tickets.filter(item => !item.revealed).length }), 'info')),
+      tickets.map(item => h('div.scratch-ticket' + (item.revealed ? '.revealed' : '.ready'),
+        h('div.scratch-ticket-art', h('span.scratch-art-icon', item.revealed ? item.is_winner ? '🎁' : '✨' : '🎟️'),
+          item.revealed ? null : h('span.scratch-foil', h('b', 'OFFLet'), h('i', '✦'))),
+        h('div.grow.stack.s', h('b', item.revealed
+          ? item.is_winner ? t('You won: {prize}', { prize: item.prize_title }) : t('No prize this time')
+          : t('Scratch card ready')),
+        item.revealed && item.reward_code ? h('small.muted', t('Reward code: {code}', { code: item.reward_code })) :
+          h('small.muted', FX.fmtDT(item.issued_at))),
+        item.revealed ? pill(t('Revealed'), item.is_winner ? 'ok' : '') :
+          h('button.btn.sm.scratch-trigger', { onclick: e => busy(e.currentTarget, async () => {
+            const result = await api('scratch-tickets/' + item.id + '/reveal/', 'POST', {});
+            await FX.render(true);
+            FX.celebrate({
+              icon: result.is_winner ? '🎁' : '🎟️',
+              big: result.is_winner,
+              title: t(result.is_winner ? 'You won!' : 'No prize this time'),
+              text: result.is_winner ? t('You won: {prize}', { prize: result.prize_title }) : t('No prize this time. Keep shopping!'),
+              body: result.is_winner ? h('div.scratch-prize', h('img', {
+                src: '/api/rewards/qr/' + encodeURIComponent(result.reward_code) + '.png',
+                width: 144, height: 144, alt: t('Reward code: {code}', { code: result.reward_code })
+              }), h('b', result.reward_code)) : null,
+              actions: result.is_winner ? [[t('Show reward pass'), () => {
+                sessionStorage['tab_' + biz.shop_code] = 'rewards';
+                FX.go('shop/' + biz.shop_code + '?tab=rewards');
+              }]] : []
+            });
+          }) }, t('Scratch now'))))) : null;
     return h('div.stack', coinCard, scratchCard,
       act.length ? act.map(g => ticket(g, null, biz.brand_color, biz.name)) : empty('No rewards ready', 'Keep collecting stamps. Your rewards appear here.'),
       old.length ? h('details', h('summary.muted', t('Past rewards ({n})', { n: old.length })), h('div.stack', { style: 'margin-top:10px' }, old.map(g => ticket(g)))) : null);
@@ -553,11 +629,33 @@
   }
 
   /* ---------- invite ---------- */
+  function inviteGives(biz, r) {
+    const you = [], friend = [];
+    if (r.reward) you.push('🎁 ' + r.reward);
+    if (r.referrer_bonus) you.push('🪙 ' + t('{n} coins', { n: r.referrer_bonus }));
+    const welcome = biz.perks && biz.perks.welcome;
+    if (welcome) friend.push('🎁 ' + welcome.title);
+    if (r.friend_bonus) friend.push('🪙 ' + t('{n} coins', { n: r.friend_bonus }));
+    return { you, friend };
+  }
   function inviteTab(biz, me) {
-    const text = t('Join me at {shop} and earn rewards!', { shop: biz.name });
-    return h('div.card.stack', h('h3', t('Invite friends')), h('p.muted', me.referral_reward ? t('When a friend makes their first purchase, you get: {r}', { r: me.referral_reward }) : t('Share this shop with friends.')),
-      h('div.row.between', h('div', h('small.muted', t('Your code')), h('div.num.bold', { style: 'font-size:calc(26px * var(--font-scale, .8));letter-spacing:.1em' }, me.referral_code)), h('small.muted', t('{n} friends joined', { n: me.friends_referred }))),
-      h('div.row.wrap', h('button.btn', { onclick: () => FX.share(text, me.referral_url) }, t('Share on WhatsApp')), h('button.btn.ghost', { onclick: () => FX.copy(me.referral_url) }, t('Copy link'))));
+    const r = me.referral || { code: me.referral_code, url: me.referral_url, reward: me.referral_reward, joined: me.friends_referred, purchased: 0, coins_earned: 0, friends: [] };
+    const brand = biz.brand || { name: 'OFFLet', domain: location.host };
+    const text = t('Join me at {shop} on {brand} and we both earn rewards! {domain}', { shop: biz.name, brand: brand.name, domain: brand.domain });
+    const g = inviteGives(biz, r);
+    return h('div.stack',
+      me.referral && me.referral.invited_pending && (r.friend_bonus || (biz.perks && biz.perks.welcome)) ? h('div.banner.blue', '🤝 ' + t('{name} invited you. Make your first purchase to unlock your joining bonus.', { name: r.invited_by })) : null,
+      h('div.card.stack.invite-hero',
+        h('h3', t('Invite friends. You both win.')),
+        h('div.g2.invite-gives',
+          h('div.give', h('small', t('You get')), g.you.length ? g.you.map(x => h('b', x)) : h('b', t('Rewards from this shop'))),
+          h('div.give', h('small', t('Your friend gets')), g.friend.length ? g.friend.map(x => h('b', x)) : h('b', t('Rewards from this shop')))),
+        h('small.muted', t('Paid after your friend’s first approved purchase.')),
+        h('div.invite-code', h('div', h('small.muted', t('Your code')), h('div.code-big', r.code)), h('button.btn.ghost.sm', { onclick: () => FX.copy(r.code) }, t('Copy'))),
+        h('div.row.wrap', h('button.btn.grow', { onclick: () => FX.share(text, r.url) }, t('Share on WhatsApp')), h('button.btn.ghost', { onclick: () => FX.copy(r.url) }, t('Copy link')))),
+      h("div.invite-stats", FX.kpi(t("Friends joined"), r.joined), FX.kpi(t("Made a purchase"), r.purchased), FX.kpi(t("Coins earned"), r.coins_earned)),
+      r.friends && r.friends.length ? h('div.card', h('h3', t('Your friends')), r.friends.map(f => h('div.li', h('div.grow', h('b', f.name), h('div.small.muted', FX.fmtDT(f.joined_at))),
+        pill(t(f.status === 'purchased' ? 'Purchased' : 'Joined'), f.status === 'purchased' ? 'ok' : 'warn')))) : null);
   }
 
   /* ---------- booking ---------- */

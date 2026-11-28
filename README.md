@@ -12,6 +12,8 @@ The production Gunicorn configuration distributes traffic across configurable wo
 
 
 ## QR card (My shop)
+> **v2.5:** the card now comes in four branded designs (Poster, Sticker, Story, Rewards), each showing the OFFLet logo, `offlet.in` and the shop link, with Print for Poster and Sticker. See [UPGRADE.md](UPGRADE.md#v250-branded-qr-cards-smarter-coins-customer-refer--earn-dated-offers).
+
 My shop shows **one** QR card: shop logo/initial, name, real customer-rating stars when reviews exist, tagline, customer-facing stamp rewards, Spin & Win, offers and referral benefits, a scannable QR code, and compact shop details. It never invents a rating. The card uses the shop's brand colour and Hindi text when the shop language is Hindi. It has only two actions: **Download** (PNG) and **Share** (WhatsApp/any app via the phone's share sheet; falls back to sharing the shop link). It is drawn in the browser, so it fits any phone and needs no extra server work. The older A6/A5/A4/table-tent print pages still exist at `/print/<shop_code>/?size=...` only for the classic fallback UI (`/app/classic/`); they are no longer linked from the app.
 
 ## Smart Spin & Win

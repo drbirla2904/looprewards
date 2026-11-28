@@ -15,8 +15,8 @@ from django.db.models import Avg, Count, Max, Min, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from .models import (AuditLog, Booking, CustomerProfile, Feedback, Program, PurchaseEntry, RewardGrant,
-                     RewardRedemptionRequest, TaskProgress)
+from .models import (AuditLog, Booking, CoinAccount, CoinProgram, CoinTransaction, CustomerProfile, Feedback, Program,
+                     PurchaseEntry, RewardGrant, RewardRedemptionRequest, TaskProgress)
 from .notify import push
 
 SEGMENTS = ("never", "new", "regular", "at_risk", "lapsed")
@@ -115,9 +115,47 @@ def _grant(profile, reward):
     return g
 
 
+def award_coins(profile, amount, reason):
+    """Credit bonus coins (welcome / referral). Must run inside a transaction; returns the coins credited."""
+    if amount <= 0:
+        return 0
+    account, _ = CoinAccount.objects.get_or_create(profile=profile)
+    account = CoinAccount.objects.select_for_update().get(pk=account.pk)
+    account.balance += amount
+    account.save(update_fields=["balance", "updated_at"])
+    CoinTransaction.objects.create(account=account, delta=amount, kind="bonus", reason=reason)
+    return amount
+
+
+def _coin_bonuses(profile, ref):
+    """First-purchase coin bonuses. Each is exactly-once per customer (AuditLog), even after an undo."""
+    biz = profile.business
+    cfg = CoinProgram.objects.filter(business=biz, enabled=True).first()
+    if not cfg:
+        return
+    if cfg.welcome_bonus and not AuditLog.objects.filter(
+            business=biz, action="coin_welcome", ref=str(profile.id)).exists():
+        AuditLog.objects.create(business=biz, actor=None, action="coin_welcome", ref=str(profile.id))
+        n = award_coins(profile, cfg.welcome_bonus, "welcome")
+        push(profile.user, f"Welcome bonus: {n} coins added at {biz.name}.", link=f"/b/{biz.shop_code}/?tab=rewards")
+    if ref and ref.status == "active" and (cfg.referrer_bonus or cfg.friend_bonus) and not AuditLog.objects.filter(
+            business=biz, action="coin_referral", ref=str(profile.id)).exists():
+        AuditLog.objects.create(business=biz, actor=None, action="coin_referral", ref=str(profile.id))
+        friend = profile.user.first_name or "Your friend"
+        if cfg.referrer_bonus:
+            n = award_coins(ref, cfg.referrer_bonus, "referrer")
+            push(ref.user, f"{friend} made a first purchase at {biz.name}: you earned {n} coins.",
+                 link=f"/b/{biz.shop_code}/?tab=invite")
+        if cfg.friend_bonus:
+            n = award_coins(profile, cfg.friend_bonus, "friend")
+            push(profile.user, f"Thanks for joining through a friend: {n} bonus coins added at {biz.name}.",
+                 link=f"/b/{biz.shop_code}/?tab=rewards")
+
+
 def after_approval(profile):
     """Run inside the approval transaction. First approved purchase => welcome perk for the customer and a
-    referral perk for whoever invited them. AuditLog rows make both exactly-once, even after an undo."""
+    referral perk for whoever invited them (plus the coin bonuses, when the shop runs Coin Rewards).
+    AuditLog rows make all of them exactly-once, even after an undo."""
     biz = profile.business
     if len(visit_days(profile)) != 1:  # only the very first visit day triggers perks
         return
@@ -127,6 +165,7 @@ def after_approval(profile):
         if reward:
             _grant(profile, reward)
     ref = profile.referred_by
+    _coin_bonuses(profile, ref)
     if ref and ref.status == "active" and not AuditLog.objects.filter(
             business=biz, action="perk_referral", ref=str(profile.id)).exists():
         reward = biz.perk_rewards.filter(trigger="referral").first()
@@ -354,6 +393,8 @@ def wallet(user):
             "streak_this_week": st["streak_this_week"], "best": st["best"],
             "active_rewards": st["active_rewards"], "next_expiry": st["next_expiry"],
             "boosts_now": st["boosts_now"],
+            "coins": (CoinAccount.objects.filter(profile=p).values_list("balance", flat=True).first() or 0)
+            if getattr(biz, "coin_program", None) and biz.coin_program.enabled else None,
             "next_booking": {"id": upcoming.id, "service": upcoming.service.name, "starts_at": upcoming.starts_at,
                              "status": upcoming.status} if upcoming else None,
         })

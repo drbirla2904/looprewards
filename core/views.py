@@ -192,8 +192,14 @@ def public_business(request, code):
         trigger__in=("welcome", "referral", "social")
     )}
     data["offers"] = ShopOfferSerializer(
-        biz.offers.filter(active=True).prefetch_related("items"), many=True
+        biz.offers.filter(active=True).filter(
+            Q(ends_on__isnull=True) | Q(ends_on__gte=timezone.localdate())).prefetch_related("items"), many=True
     ).data
+    data["brand"] = {"name": settings.BRAND_NAME, "domain": settings.BRAND_DOMAIN, "url": settings.BASE_URL}
+    coin_cfg = getattr(biz, "coin_program", None)
+    data["coins"] = ({"spend_per_coin": coin_cfg.spend_per_coin, "visit_coins": coin_cfg.visit_coins,
+                      "welcome_bonus": coin_cfg.welcome_bonus, "referrer_bonus": coin_cfg.referrer_bonus,
+                      "friend_bonus": coin_cfg.friend_bonus} if coin_cfg and coin_cfg.enabled else None)
     data["tiers"] = [{"tier": t, "visits": n, "perk": perk} for t, n, perk in engage.tier_ladder(biz)[1:]]
     return Response(data)
 

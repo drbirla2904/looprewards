@@ -1344,7 +1344,7 @@ class CoinAndScratchRewardsTest(APITestCase):
         return entry
 
     def test_approved_spend_earns_coins_once_and_issues_one_bounded_scratch_ticket(self):
-        from .models import CoinAccount, CoinTransaction, ScratchTicket
+        from .models import CoinAccount, CoinTransaction, Notification, ScratchTicket
 
         self.client.force_authenticate(self.owner)
         with patch("core.services.secrets.randbelow", return_value=0):
@@ -1355,6 +1355,9 @@ class CoinAndScratchRewardsTest(APITestCase):
         tickets = list(ScratchTicket.objects.filter(purchase_entry__in=entries).order_by("id"))
         self.assertEqual([ticket.is_winner for ticket in tickets], [True, False, False])
         self.assertEqual({ticket.deck_number for ticket in tickets}, {self.campaign.deck_number})
+        scratch_notices = Notification.objects.filter(user=self.customer, text__startswith="Scratch card ready at")
+        self.assertEqual(scratch_notices.count(), 3)
+        self.assertFalse(scratch_notices.exclude(link=f"/b/{self.business.shop_code}/?tab=rewards").exists())
         duplicate = self.client.post(f"/api/entries/{entries[0].pk}/review/", {"action": "approve"}, format="json")
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(CoinTransaction.objects.filter(account=account, kind="purchase").count(), 3)

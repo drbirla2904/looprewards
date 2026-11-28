@@ -8,6 +8,9 @@ DEBUG = env("DEBUG", "0") == "1"  # safe default: production. Local dev: DEBUG=1
 _hosts = [host.strip() for host in env("ALLOWED_HOSTS", "*").split(",") if host.strip()]
 ALLOWED_HOSTS = _hosts + ["localhost", "127.0.0.1"]
 BASE_URL = env("BASE_URL", "http://localhost:8000")  # QR -> BASE_URL/b/<code>
+# Brand shown on QR cards and share messages (override with BRAND_NAME / BRAND_DOMAIN in .env)
+BRAND_NAME = env("BRAND_NAME", "OFFLet")
+BRAND_DOMAIN = env("BRAND_DOMAIN", "") or env("DOMAIN", "") or BASE_URL.split("://", 1)[-1].split("/", 1)[0]
 CSRF_TRUSTED_ORIGINS = [o for o in env("CSRF_TRUSTED_ORIGINS", "").split(",") if o]
 INSTALLED_APPS = ["django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
@@ -97,7 +100,8 @@ RZP_PLAN_IDS = {"monthly": env("RAZORPAY_PLAN_MONTHLY", ""), "yearly": env("RAZO
 REST_FRAMEWORK["NUM_PROXIES"] = int(env("NUM_PROXIES", "1"))  # Caddy = 1 (Cloudflare + Caddy = 2); needed for per-user-IP throttling
 REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = ["rest_framework.throttling.AnonRateThrottle", "rest_framework.throttling.UserRateThrottle"]
 # high anon/user limits because many Indian mobile users share one carrier IP (CGNAT); login/OTP use the strict "auth" scope
-REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"anon": "600/min", "user": "600/min",
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"anon": "100000/min" if "test" in sys.argv else "600/min",  # the test run shares one cache and IP
+                                            "user": "100000/min" if "test" in sys.argv else "600/min",
                                             "auth": "10000/min" if "test" in sys.argv else "10/min",
                                             "donation": "5/min"}
 if env("REDIS_URL"):  # shared across workers; without it throttling is per-process

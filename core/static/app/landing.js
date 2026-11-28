@@ -4,36 +4,36 @@
   'use strict';
   const { h, t, api } = FX;
 
-  const HOW = [['Print the QR', 'Pick your business type. A ready reward program is created in one tap, then print the counter card.'],
-    ['Customers scan and collect', 'No app to install. A customer joins with a mobile number and taps once after each purchase.'],
-    ['They come back for more', 'Approve from your phone, send win-back offers and watch your repeat customers grow.']];
+  const HOW = [['Print the QR', 'Choose your business type. Get a ready-made rewards program and QR code.'],
+    ['Customers scan and collect', 'Customers join with a mobile number and collect after each purchase.'],
+    ['They come back for more', 'Approve visits and send offers that bring customers back.']];
   const FEATURES = {
-    shops: [['⚡', 'One-tap setup', 'A ready program, welcome gift and referral reward for cafes, salons, grocery, fitness and more.'],
-      ['✅', 'Approve with undo', 'A simple queue for you and your staff. Counter codes approve honest customers instantly.'],
-      ['👥', 'Know your customers', 'New, regular, slipping away or lapsed. Search, add notes, call or WhatsApp in a tap.'],
-      ['📣', 'Win-back offers', 'Send a message to customers who stopped visiting. Only to those who opted in.'],
-      ['⚡', 'Double-stamp boosts', 'Fill your quiet hours with Tuesday or 2 to 5 pm boosts. Undo reverses exactly what was given.'],
-      ['📅', 'Bookings', 'Salons and studios take appointment requests. Completed visits credit stamps automatically.'],
-      ['📊', 'Honest insights', 'Come-back rate, busiest hours, rewards redeemed, ratings and a plain-language tip each day.'],
-      ['🖨️', 'Print kit', 'Counter card, A5 and A4 posters, and a table tent with your logo, colours and QR.'],
-      ['🔒', 'Private by design', 'Customers are visible only to the shop they joined. Delete-my-account is built in.']],
-    customers: [['🎟️', 'Digital stamp cards', 'One wallet for every shop. See exactly how close your next reward is.'],
-      ['👆', 'One-tap check-in', 'Tap after you buy. Get approved instantly with the counter code, or in minutes by the shop.'],
-      ['🎁', 'Reward pass with QR', 'Show a code the staff can scan. No screenshots, no arguments at the counter.'],
-      ['🔥', 'Streaks and tiers', 'Visit every week to keep your streak. Reach Silver and Gold for extra perks.'],
-      ['👫', 'Invite friends', 'Share your link on WhatsApp. When a friend makes a first purchase you both win.'],
-      ['🇮🇳', 'हिन्दी and English', 'Switch language any time. Works on any phone, no download.']],
-    partners: [['💸', 'Earn on every renewal', 'A commission on each subscription payment from the shops you bring.'],
-      ['🏅', 'Partner tiers', 'Bring more paying shops to reach Silver, Gold and Platinum for a higher rate.'],
-      ['📄', 'Ready marketing kit', 'A printable flyer with your own QR, WhatsApp messages and a 30-second pitch.'],
-      ['🧾', 'Clear statements', 'Monthly payouts, TDS and a financial-year statement you can download.']]
+    shops: [['⚡', 'One-tap setup', 'Ready-made rewards for cafes, salons, grocery shops and more.'],
+      ['✅', 'Approve with undo', 'Review visits. Counter codes approve instantly.'],
+      ['👥', 'Know your customers', 'Find regulars and customers who may need a reminder.'],
+      ['📣', 'Win-back offers', 'Message customers who opted in.'],
+      ['⚡', 'Double-stamp boosts', 'Reward visits during quiet hours. Undo changes safely.'],
+      ['📅', 'Bookings', 'Take appointment requests and credit completed visits.'],
+      ['📊', 'Honest insights', 'See return visits, busy hours, redemptions and ratings.'],
+      ['🖨️', 'Print kit', 'Print branded counter cards and posters.'],
+      ['🔒', 'Private by design', 'Each shop sees only its own customers.']],
+    customers: [['🎟️', 'Digital stamp cards', 'Track rewards at every shop in one place.'],
+      ['👆', 'One-tap check-in', 'Check in after a purchase; the shop confirms your visit.'],
+      ['🎁', 'Reward pass with QR', 'Show a code staff can scan.'],
+      ['🔥', 'Streaks and tiers', 'Build a weekly streak and unlock tier perks.'],
+      ['👫', 'Invite friends', 'Invite a friend; both earn after their first purchase.'],
+      ['🇮🇳', 'हिन्दी and English', 'Switch language any time. No download needed.']],
+    partners: [['💸', 'Earn on subscriptions', 'Earn commission on shop subscriptions.'],
+      ['🏅', 'Partner tiers', 'Refer more shops to unlock higher commission rates.'],
+      ['📄', 'Ready marketing kit', 'Get a printable QR flyer and WhatsApp messages.'],
+      ['🧾', 'Clear statements', 'View payouts, tax deductions and yearly statements.']]
   };
-  const FAQ = [['Do my customers need to install an app?', 'No. Customers scan your QR code and use OFFLet in their phone browser. They can add it to the home screen if they like.'],
-    ['How does the free trial work?', 'You get {d} days free with no card needed. Everything works. Choose a plan any time before it ends.'],
-    ['What if I stop paying?', 'Your shop page pauses, but your customers, progress and rewards are kept safe. Renew and everything comes back instantly.'],
-    ['How do I pay?', 'Pay online with Razorpay (UPI, cards, netbanking), turn on AutoPay, or pay by UPI and upload the screenshot. Invoices include GST.'],
-    ['Can customers cheat the system?', 'Entries need your approval or the rotating counter code. A location check, daily limits and cooldowns add protection, and you can block anyone.'],
-    ['Is it available in Hindi?', 'Yes. Owners, staff, customers and partners can all switch between English and हिन्दी.']];
+  const FAQ = [['Do my customers need to install an app?', 'No. Scan the shop QR code in your phone browser.'],
+    ['How does the free trial work?', 'Get {d} days free. No card required. Choose a plan before it ends.'],
+    ['What if I stop paying?', 'Your shop pauses, but its data stays safe. Renew to restore it.'],
+    ['How do I pay?', 'Pay by UPI, card or netbanking. AutoPay is optional. GST invoices are available.'],
+    ['Can customers cheat the system?', 'Visits need shop approval or a rotating counter code. Daily limits and location checks help prevent misuse.'],
+    ['Is it available in Hindi?', 'Yes. Switch between English and हिन्दी any time.']];
 
   FX.landing = async function () {
     let plans = null;
@@ -65,9 +65,9 @@
         h('button.btn.ghost.sm', { onclick: () => { FX.setLang(FX.lang === 'hi' ? 'en' : 'hi'); FX.start(true); } }, FX.lang === 'hi' ? 'English' : 'हिन्दी'),
         h('button.btn.sm', { onclick: toStart }, t('Get started'))),
       h('div.hero-wrap', hero),
-      h('section#how', h('div.wrapw', h('h2.sec', t('Up and running in a minute')), h('p.sec', t('No hardware, no app, no training.')),
+      h('section#how', h('div.wrapw', h('h2.sec', t('Up and running in a minute')), h('p.sec', t('No hardware or app needed.')),
         h('div.how', HOW.map(([title, text], i) => h('div', h('span.n', i + 1), h('h3', t(title)), h('p.muted', t(text))))))),
-      h('section.alt#features', h('div.wrapw', h('h2.sec', t('Everything to bring customers back')), h('p.sec', t('Built for the way local shops, salons and studios really work.')), h('div.tabs3', seg), grid)),
+      h('section.alt#features', h('div.wrapw', h('h2.sec', t('Everything to bring customers back')), h('p.sec', t('Simple tools for shops, salons and studios.')), h('div.tabs3', seg), grid)),
       price,
       h('section#faq', h('div.wrapw', h('h2.sec', t('Questions, answered')), h('div.faq', FAQ.map(([q, a]) => h('details', h('summary', t(q)), h('p', t(a, { d: plans ? plans.trial_days : 14 }))))))),
       h('section.cta', h('h2', t('Give customers a reason to come back.')), h('p', t('Create your free account in 30 seconds.')), h('button.btn.lg.gold', { onclick: toStart }, t('Start free trial'))));

@@ -599,13 +599,15 @@
           throw new Error(t('Enter an item name and a whole-number coin price.'));
         }
         await api('b/' + code() + '/coin-rewards/' + (reward ? reward.id + '/' : ''), reward ? 'PATCH' : 'POST', body);
-        m.close(); await onDone();
+        m.close(); toast(t(reward ? 'Coin reward updated.' : 'Coin reward added.')); await onDone();
       }) }, t('Save item'))));
   }
   function coinProgramCard(config, redemptions, onDone) {
     const enabled = h('input', { type: 'checkbox', checked: config.enabled });
     const rate = inp({ type: 'number', min: '1', max: '100000', value: config.spend_per_coin });
     const cap = inp({ type: 'number', min: '1', max: '1000000', value: config.daily_cap });
+    const bonus = v => inp({ type: 'number', min: '0', max: '100000', value: v });
+    const welcome = bonus(config.welcome_bonus), visit = bonus(config.visit_coins), referrer = bonus(config.referrer_bonus), friend = bonus(config.friend_bonus);
     const rewards = config.rewards.map(reward => h('div.li.coin-reward-row',
       h('div.grow.stack.s', h('div.row.wrap', h('b', reward.title), pill(t('{n} coins', { n: reward.cost }), 'info')),
         reward.description ? h('small.muted', reward.description) : null,
@@ -627,8 +629,8 @@
     const pending = redemptions.length ? h('div.card.stack',
       h('div.hd', h('h3', t('Coin redemption requests')), pill(redemptions.length, 'warn')),
       redemptions.map(item => h('div.li.coin-redemption-row',
-        h('div.grow', h('b', item.customer), h('small.muted', t('{reward} · {coins} coins', { reward: item.reward, coins: item.coins }) + ' · ' + FX.fmtDT(item.requested_at)),
-          h('small.muted', t('Mobile ending in {digits}', { digits: item.mobile_last4 }))),
+        h('div.grow', h('b', item.customer), h('div.small.muted', t('{reward} · {coins} coins', { reward: item.reward, coins: item.coins }) + ' · ' + FX.fmtDT(item.requested_at)),
+          h('div.small.muted', t('Mobile ending in {digits}', { digits: item.mobile_last4 }) + ' · ' + t('Code') + ' ' + item.code)),
         h('div.coin-reward-actions',
         h('button.btn.sm', { onclick: e => busy(e.target, async () => {
           await api('b/' + code() + '/coin-redemptions/' + item.id + '/', 'POST', { action: 'approve' }); await onDone();
@@ -640,11 +642,17 @@
       enabled.checked ? pill(t('Active'), 'ok') : pill(t('Paused'))),
       h('div.card.stack',
         h('div.stack.s', h('h3', t('Earning settings')), h('small.muted', t('Coins are added after a shop approves a purchase.'))),
+        h('div.coin-stats', FX.kpi('Coins held by customers', config.stats.outstanding), FX.kpi('Coins given, 30 days', config.stats.issued_30d), FX.kpi('Rewards given, 30 days', config.stats.redeemed_30d)),
         h('div.g3', field('Enable Coin Rewards', enabled), field('Rupees spent per coin earned', rate), field('Daily coin earning cap per customer', cap)),
+        h('div.stack.s', h('h3', t('Bonuses that bring customers back')), h('small.muted', t('Leave a bonus at 0 to switch it off. Referral coins are paid after the friend’s first approved purchase.'))),
+        h('div.g2', field('Welcome coins (first purchase)', welcome), field('Coins per visit (visit and quantity rewards)', visit)),
+        h('div.g2', field('Coins for the customer who invites', referrer), field('Coins for the invited friend', friend)),
         h('div.row.wrap', h('button.btn.sm', { onclick: e => busy(e.target, async () => {
-          await api('b/' + code() + '/coin-program/', 'PUT', { enabled: enabled.checked, spend_per_coin: rate.value, daily_cap: cap.value });
+          await api('b/' + code() + '/coin-program/', 'PUT', { enabled: enabled.checked, spend_per_coin: rate.value, daily_cap: cap.value,
+            welcome_bonus: welcome.value || 0, visit_coins: visit.value || 0, referrer_bonus: referrer.value || 0, friend_bonus: friend.value || 0 });
+          toast(t('Saved'));
           await onDone();
-        }) }, t('Save coin settings'))),
+        }) }, t('Save coin settings')), h('button.btn.ghost.sm', { onclick: () => { enabled.checked = true; welcome.value = 20; visit.value = 5; referrer.value = 50; friend.value = 25; toast(t('Recommended bonuses filled in. Press Save to apply.')); } }, t('Use recommended bonuses'))),
         h('div.hd', h('div', h('h3', t('Shop items')), h('small.muted', t('Customers can redeem these items using coins from this shop.'))),
           h('button.btn.ghost.sm', { onclick: () => coinRewardEditor(onDone) }, '+ ' + t('Add shop item'))),
         config.rewards.length ? h('div.stack.s', rewards) : empty('No coin rewards yet', 'Add a reward customers can claim with their coins.')),
@@ -671,7 +679,8 @@
             prize_value: value.value, prize_terms: terms.value, expiry_days: expiry.value,
             cards_per_deck: deck.value, winning_cards: winners.value,
           });
-          onDone();
+          toast(t('Scratch campaign saved.'));
+          await onDone();
         }) }, t('Save scratch campaign'))));
   }
   R.rewards = async function (args) {

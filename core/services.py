@@ -96,20 +96,26 @@ def review_entry(entry, actor, approve):
 def issue_purchase_rewards(entry):
     profile = CustomerProfile.objects.select_for_update().get(pk=entry.profile_id)
     biz = profile.business
-    if entry.task.type == "amount":
-        config = CoinProgram.objects.select_for_update().filter(business=biz, enabled=True).first()
-        if config and config.spend_per_coin:
+    config = CoinProgram.objects.select_for_update().filter(business=biz, enabled=True).first()
+    if config:
+        # amount tasks earn per rupee spent; visit/count tasks earn a flat number of coins per approved entry
+        if entry.task.type == "amount":
+            coins = int(entry.value // config.spend_per_coin) if config.spend_per_coin else 0
+        else:
+            coins = config.visit_coins
+        if coins:
             account, _ = CoinAccount.objects.get_or_create(profile=profile)
             account = CoinAccount.objects.select_for_update().get(pk=account.pk)
             earned_today = CoinTransaction.objects.filter(
                 account=account, kind="purchase", created_at__date=timezone.localdate(),
             ).aggregate(total=Sum("delta"))["total"] or 0
-            coins = int(entry.value // config.spend_per_coin)
             coins = min(coins, max(0, config.daily_cap - earned_today))
             if coins:
                 account.balance += coins
                 account.save(update_fields=["balance", "updated_at"])
                 CoinTransaction.objects.create(account=account, delta=coins, kind="purchase", purchase_entry=entry)
+                push(profile.user, f"You earned {coins} coin{'s' if coins != 1 else ''} at {biz.name}.",
+                     link=f"/b/{biz.shop_code}/?tab=rewards")
 
     campaign = ScratchCampaign.objects.select_for_update().filter(
         business=biz, active=True,
@@ -132,6 +138,7 @@ def issue_purchase_rewards(entry):
     campaign.cards_issued += 1
     campaign.wins_issued += int(is_winner)
     campaign.save(update_fields=["deck_number", "cards_issued", "wins_issued", "updated_at"])
+    push(profile.user, f"Scratch card ready at {biz.name}.", link=f"/b/{biz.shop_code}/?tab=rewards")
     return ticket
 
 

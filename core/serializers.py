@@ -1,3 +1,4 @@
+from django.utils import timezone
 import re
 from urllib.parse import urlparse
 from rest_framework import serializers
@@ -89,10 +90,14 @@ class ShopOfferItemSerializer(serializers.ModelSerializer):
 
 class ShopOfferSerializer(serializers.ModelSerializer):
     items = ShopOfferItemSerializer(many=True, read_only=True)
+    expired = serializers.SerializerMethodField()
+
+    def get_expired(self, obj):
+        return bool(obj.ends_on and obj.ends_on < timezone.localdate())
 
     class Meta:
         model = ShopOffer
-        fields = ["id", "offer_type", "value", "active", "items"]
+        fields = ["id", "offer_type", "value", "title", "ends_on", "expired", "active", "items"]
 
 
 class TaskSerializer(serializers.ModelSerializer):

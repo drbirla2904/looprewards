@@ -146,3 +146,19 @@ Files: `core/vendors.py` (owners may apply, `wallet` endpoint, stronger self-ref
 My shop now has one QR card (download / share only) instead of the A6/A5/A4/table-tent links. Mobile layout fixes in `app.css`
 (`.stack` columns can shrink, long buttons wrap) remove sideways scrolling on phones from 320 px wide. Files: `owner2.js` (`drawQrCard`, `qrCard`),
 `owner.js` (tile label), `app.css`, `i18n-hi3.js`.
+
+
+## v2.5.0: branded QR cards, smarter coins, customer refer & earn, dated offers
+**Upgrade:** `python manage.py migrate` (new migration `0026`; additive, safe on live data), then `bash ./deploy/deploy.sh`. Optional `.env`: `BRAND_NAME`, `BRAND_DOMAIN` (default `OFFLet` and your `DOMAIN`). ASSET_VERSION is 2.5.0.
+
+**QR cards (My shop -> Your QR card).** Four designs, switchable in one tap and remembered per phone: *Poster* (A4 counter poster), *Sticker* (square, glass/table), *Story* (1080x1920 WhatsApp status), *Rewards* (the previous all-rewards card). Every design carries the OFFLet logo and name, the domain pill (`offlet.in`) and the shop's short link (`offlet.in/b/<code>`) under the QR. The three highlights shown (coins, live offers, refer & earn, welcome gift, stamps) come from what the shop has actually switched on. Poster and Sticker have a **Print** button (A4 / 150 mm square, so "Save as PDF" works from the print dialog). QR codes stay plain black on white so they always scan. Hindi text follows the shop language.
+
+**Coins.** New shop settings (all default 0 = off): welcome coins on the first approved purchase, coins per visit/quantity entry, coins for the inviting customer, coins for the invited friend. Each is paid exactly once per customer (same audit rule as the welcome/referral gifts) and is not reversed by Undo, matching the gifts. "Use recommended bonuses" fills 20 / 5 / 50 / 25. Customers see a balance hero with progress to the next reward, the earning rules, a coin history ledger, a redemption code (`CR-00001`, also shown to staff), and can cancel a pending request to get coins back at once (`POST /api/coin-redemptions/<id>/cancel/`). Owners see coins outstanding, coins given in 30 days and rewards given. Customers earn a push notification per coin credit.
+
+**Refer & earn (customers).** The Invite tab now shows what *you* get and what your *friend* gets (gift + coins), your code, share-on-WhatsApp text that names the shop, OFFLet and the domain, friends joined / purchased / coins earned, and a per-friend status list. A friend who was invited sees a banner promising the joining bonus. Self-referral and blocked inviters earn nothing.
+
+**Offers.** Optional offer name and end date; expired offers are hidden from customers automatically, show "N days left" to customers, and owners can extend by 7/30 days or clear the date. Percent display no longer shows "20.00%".
+
+**Other.** Public shop payload adds `brand` and `coins`; wallet shows coin balance per shop; test runs no longer trip the shared rate limit. Tests: 202 pass (`core/tests_v25.py` adds 10). New Hindi strings in `i18n-hi4.js` are machine-written: please proofread.
+
+**Not changed / known limits.** Referral and welcome coins are not clawed back if the friend's first purchase is later undone. Coins do not expire. The print pages at `/print/<code>/` are unchanged. Real-device scanning of the new cards, the Print dialog on your printer, and Razorpay flows were not tested here.

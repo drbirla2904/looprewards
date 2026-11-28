@@ -86,6 +86,8 @@ class ShopOffer(models.Model):
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="offers")
     offer_type = models.CharField(max_length=15, choices=TYPES)
     value = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    title = models.CharField(max_length=80, blank=True)  # v2.5: optional headline, e.g. "Weekend special"
+    ends_on = models.DateField(null=True, blank=True)    # v2.5: last day the offer is shown (inclusive)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -216,6 +218,11 @@ class CoinProgram(models.Model):
     enabled = models.BooleanField(default=False)
     spend_per_coin = models.PositiveIntegerField(default=10)
     daily_cap = models.PositiveIntegerField(default=1000)
+    # v2.5 growth bonuses (0 = off): coins for joining, per approved visit/count entry, and for refer-and-earn
+    welcome_bonus = models.PositiveIntegerField(default=0)
+    visit_coins = models.PositiveIntegerField(default=0)
+    referrer_bonus = models.PositiveIntegerField(default=0)
+    friend_bonus = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
 
@@ -253,10 +260,12 @@ class CoinRedemption(models.Model):
 
 
 class CoinTransaction(models.Model):
-    KINDS = [("purchase", "Purchase"), ("redemption", "Redemption"), ("refund", "Refund"), ("reversal", "Purchase reversal")]
+    KINDS = [("purchase", "Purchase"), ("redemption", "Redemption"), ("refund", "Refund"), ("reversal", "Purchase reversal"),
+             ("bonus", "Bonus")]
     account = models.ForeignKey(CoinAccount, on_delete=models.CASCADE, related_name="transactions")
     delta = models.BigIntegerField()
     kind = models.CharField(max_length=12, choices=KINDS)
+    reason = models.CharField(max_length=20, blank=True)  # for bonus rows: welcome / referrer / friend
     purchase_entry = models.OneToOneField(PurchaseEntry, null=True, blank=True, on_delete=models.CASCADE,
                                           related_name="coin_transaction")
     redemption = models.ForeignKey(CoinRedemption, null=True, blank=True, on_delete=models.CASCADE,

@@ -182,7 +182,7 @@
               body: h('div.card.stack.center', h('img', { src: '/api/rewards/qr/' + encodeURIComponent(result.grant.code) + '.png', width: 150, height: 150, alt: t('Coupon QR code') }),
                 h('b', result.grant.code), result.grant.terms ? h('small.muted', result.grant.terms) : null,
                 h('small.muted', FX.until(result.grant.expires_at))),
-              actions: [[t('My rewards'), () => { location.href = '/b/' + business.shop_code + '/?tab=rewards'; }]] });
+              actions: [[t('My rewards'), () => FX.openLink('/b/' + business.shop_code + '/?tab=rewards')]] });
           } else {
             const resultModal = modal(t('No luck this time'), h('div.stack.center', h('span', { style: 'font-size:48px' }, segment.icon),
               h('p', t('No prize this spin. Your next chance is waiting!')),

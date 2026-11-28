@@ -21,6 +21,8 @@
   R.campaigns = async function () {
     const type = sel([['percent_off', 'Percentage off'], ['fixed_price', 'Fixed price'], ['bogo', 'Buy 1 get 1']], 'percent_off');
     const discount = inp({ type: 'number', min: '1', max: '100', step: '1', value: '10' });
+    const offerTitle = inp({ maxlength: 80, ph: 'e.g. Weekend special' });
+    const endsOn = inp({ type: 'date', min: new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10) });
     const discountField = h('div');
     const products = h('div.stack.s');
     const offerList = h('div.stack.s');
@@ -46,10 +48,15 @@
       const offers = await api('b/' + code() + '/offers/');
       removeAll.hidden = !offers.some(offer => offer.active);
       offerList.replaceChildren(...(offers.length ? offers.map(offer => h('div.card.stack.s',
-        h('div.row.between.wrap', h('b', offer.offer_type === 'percent_off' ? offer.value + '% off' : offer.offer_type === 'fixed_price' ? t('Fixed price') : t('Buy 1 get 1')),
+        h('div.row.between.wrap', h('div.stack.s', h('b', (offer.title ? offer.title + ' · ' : '') + (offer.offer_type === 'percent_off' ? Number(offer.value) + '% off' : offer.offer_type === 'fixed_price' ? t('Fixed price') : t('Buy 1 get 1'))),
+          offer.ends_on ? h('small' + (offer.expired ? '.err' : '.muted'), offer.expired ? t('Ended on {d}', { d: offer.ends_on }) : t('Valid till {d}', { d: offer.ends_on })) : h('small.muted', t('No end date'))),
           h('div.row.wrap', h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => { await api('b/' + code() + '/offers/' + offer.id + '/', 'PATCH', { active: !offer.active }); await loadOffers(); }) }, t(offer.active ? 'Turn off' : 'Turn on')),
             h('button.btn.danger.sm', { onclick: async e => { if (await confirmBox(t('Delete this offer permanently? Customers will no longer see it.'), t('Delete offer'), true)) { await busy(e.target, async () => { await api('b/' + code() + '/offers/' + offer.id + '/', 'DELETE'); await loadOffers(); }); } } }, t('Delete')),
-            offer.active ? null : h('small.muted', t('Hidden from customers')))),
+            offer.active && !offer.expired ? null : h('small.muted', t('Hidden from customers')))),
+        offer.expired || offer.ends_on ? h('div.row.wrap', h('small.muted', t('Extend until')), ...[7, 30].map(n => h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => {
+          const d = new Date(Date.now() + n * 864e5); const iso = new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+          await api('b/' + code() + '/offers/' + offer.id + '/', 'PATCH', { ends_on: iso, active: true }); await loadOffers();
+        }) }, t('{n} days', { n }))), h('button.btn.ghost.sm', { onclick: e => busy(e.target, async () => { await api('b/' + code() + '/offers/' + offer.id + '/', 'PATCH', { ends_on: null, active: true }); await loadOffers(); }) }, t('No end date'))) : null,
         offer.items.map(item => {
           const price = Number(item.price);
           const current = offer.offer_type === 'fixed_price' ? Number(item.offer_price) :
@@ -65,11 +72,14 @@
       if (items.some(item => !item.name || !item.price || (type.value === 'fixed_price' && !item.offer_price))) throw new Error(t('Enter a name and price for each item.'));
       const form = new FormData();
       form.append('offer_type', type.value);
+      if (offerTitle.value.trim()) form.append('title', offerTitle.value.trim());
+      if (endsOn.value) form.append('ends_on', endsOn.value);
       form.append('value', type.value === 'percent_off' ? discount.value : 0);
       form.append('items', JSON.stringify(items));
       rows.forEach((row, index) => { if (row.image.files[0]) form.append('image_' + index, row.image.files[0]); });
       await api('b/' + code() + '/offers/', 'POST', form);
       rows.splice(0, rows.length, newItem());
+      offerTitle.value = ''; endsOn.value = '';
       drawType();
       await loadOffers();
       toast(t('Offer added. It is now visible to everyone.'));
@@ -78,6 +88,7 @@
     return h('div.stack.l', { style: 'max-width:680px' },
       h('div', h('h1', t('Shop offers')), h('p.muted', t('These offers are visible to everyone on your shop page, separate from rewards.'))),
       h('div.card.stack', h('h3', t('Create an offer')), field('Offer type', type), discountField,
+        h('div.g2', field('Offer name (optional)', offerTitle), field('Valid till (optional)', endsOn, 'Leave empty to keep it running until you turn it off.')),
         h('div.row.between', h('b', t('Items')), h('button.btn.ghost.sm', { onclick: () => { if (rows.length >= 20) return toast(t('Add up to 20 items per offer.')); rows.push(newItem()); drawProducts(); } }, '+ ' + t('Add item'))),
         products, save),
       h('div.card.stack', currentHeader, offerList));
@@ -164,7 +175,7 @@
     }
     ctx.restore();
   }
-  async function drawQrCard(b) {
+  async function drawRewardsCard(b) {
     const W = 1080, H = 2220, FONT = 'Inter, "Noto Sans Devanagari", -apple-system, "Segoe UI", sans-serif', hi = b.language === 'hi';
     try { await Promise.all([document.fonts.load('800 60px Inter'), document.fonts.load('500 30px Inter'), document.fonts.load('700 40px "Noto Sans Devanagari"')]); } catch (e) { /* system font fallback */ }
     const [qr, logo, offletLogo, publicBiz] = await Promise.all([
@@ -277,28 +288,206 @@
       x.fillStyle = theme.accent; x.beginPath(); x.arc(145, y - 7, 4, 0, Math.PI * 2); x.fill();
       x.fillStyle = '#4a4466'; x.fillText(line, 164, y);
     });
-    x.textAlign = 'center'; x.globalAlpha = .8; x.fillStyle = '#6b6485'; x.font = '700 19px ' + FONT; x.fillText('Powered by OFFLet', W / 2, 2175); x.globalAlpha = 1;
+    x.textAlign = 'center'; x.globalAlpha = .8; x.fillStyle = '#6b6485'; x.font = '700 19px ' + FONT; x.fillText((hi ? 'संचालित: ' : 'Powered by ') + 'OFFLet', W / 2, 2160);
+    x.fillStyle = '#5e35b1'; x.font = '800 26px ' + FONT; x.fillText(brandInfo(b, publicBiz).link, W / 2, 2198); x.globalAlpha = 1;
     return c;
   }
+  /* ---------- v2.5 branded QR templates: every template carries the OFFLet name, logo and domain ---------- */
+  const QR_FONT = 'Inter, "Noto Sans Devanagari", -apple-system, "Segoe UI", sans-serif', EMOJI = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+  const QR_INK = '#17142b';
+  const rrect = (x, px, py, w, hh, r) => { x.beginPath(); x.roundRect ? x.roundRect(px, py, w, hh, r) : x.rect(px, py, w, hh); };
+  function brandInfo(b, pb) {
+    const br = (pb && pb.brand) || {}, domain = String(br.domain || location.host).replace(/^www\./, '');
+    return { name: br.name || 'OFFLet', domain, link: domain + '/b/' + b.shop_code };
+  }
+  function qrHighlights(pb, hi) {
+    const out = [], c = pb.coins, perks = pb.perks || {}, offers = pb.offers || [];
+    if (c) out.push(['🪙', hi ? 'सिक्के कमाएँ' : 'Earn coins', c.welcome_bonus ? (hi ? '+' + c.welcome_bonus + ' वेलकम सिक्के' : '+' + c.welcome_bonus + ' welcome coins') : (hi ? 'हर खरीद पर सिक्के' : 'On every purchase')]);
+    if (offers.length) out.push(['🛍️', hi ? offers.length + ' लाइव ऑफ़र' : offers.length + ' live offer' + (offers.length > 1 ? 's' : ''), offers[0].title || (hi ? 'खास डील' : 'Special deals')]);
+    if (perks.referral || (c && (c.referrer_bonus || c.friend_bonus))) out.push(['🤝', hi ? 'रेफ़र करें और कमाएँ' : 'Refer & earn', hi ? 'दोस्त को बुलाएँ, दोनों पाएँ' : 'Invite a friend, you both win']);
+    if (perks.welcome) out.push(['🎉', hi ? 'वेलकम गिफ़्ट' : 'Welcome gift', perks.welcome.title]);
+    if ((pb.programs || []).length) out.push(['🎁', hi ? 'स्टैम्प रिवॉर्ड' : 'Stamp rewards', hi ? 'हर विज़िट पर इनाम' : 'A reward every few visits']);
+    [['🎁', hi ? 'स्टैम्प रिवॉर्ड' : 'Stamp rewards', hi ? 'हर विज़िट पर इनाम' : 'Rewards on every visit'], ['🤝', hi ? 'रेफ़र करें और कमाएँ' : 'Refer & earn', hi ? 'दोस्त को बुलाएँ, दोनों पाएँ' : 'Invite a friend, you both win'], ['🛍️', hi ? 'शॉप ऑफ़र' : 'Shop offers', hi ? 'खास डील यहाँ' : 'Deals only for members']]
+      .forEach(d => { if (out.length < 3 && !out.some(o => o[0] === d[0])) out.push(d); });
+    return out.slice(0, 3);
+  }
+  async function qrAssets(b) {
+    try { await Promise.all([document.fonts.load('800 60px Inter'), document.fonts.load('500 30px Inter'), document.fonts.load('700 40px "Noto Sans Devanagari"')]); } catch (e) { /* system font fallback */ }
+    const [qr, logo, mark, pb] = await Promise.all([loadImg('/api/b/' + b.shop_code + '/qr.png'), b.logo_url ? loadImg(b.logo_url) : null, loadImg('/icon.svg'), api('b/' + b.shop_code + '/')]);
+    if (!qr) throw new Error(t('Could not load the QR code. Check your connection.'));
+    if (!mark) throw new Error(t('Could not load the OFFLet logo. Check your connection.'));
+    const brand = /^#[0-9a-f]{6}$/i.test(b.brand_color || '') ? b.brand_color : '#5e35b1';
+    return { qr, logo, mark, pb, brand, onBrand: lum(brand) > .6 ? '#1c1530' : '#ffffff', theme: QR_CARD_THEMES[b.category] || QR_CARD_THEMES.other, hi: b.language === 'hi', info: brandInfo(b, pb) };
+  }
+  /* OFFLet logo + wordmark on the left, the domain in a pill on the right */
+  function qrBrandBar(x, A, W, y, dark) {
+    x.save(); x.textBaseline = 'middle'; x.textAlign = 'left';
+    x.fillStyle = '#fff'; rrect(x, 64, y, 56, 56, 16); x.fill(); x.drawImage(A.mark, 70, y + 6, 44, 44);
+    x.fillStyle = dark ? QR_INK : '#fff'; x.font = '800 34px ' + QR_FONT; x.fillText(A.info.name, 136, y + 30);
+    x.font = '700 24px ' + QR_FONT; const w = x.measureText(A.info.domain).width + 48;
+    x.fillStyle = dark ? '#5e35b114' : '#ffffff26'; rrect(x, W - 64 - w, y + 4, w, 48, 24); x.fill();
+    x.fillStyle = dark ? '#5e35b1' : '#fff'; x.textAlign = 'center'; x.fillText(A.info.domain, W - 64 - w / 2, y + 29);
+    x.restore();
+  }
+  function qrLogoCircle(x, A, b, cx, cy, r) {
+    x.fillStyle = '#fff'; x.beginPath(); x.arc(cx, cy, r + 8, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = A.theme.accent; x.lineWidth = 6; x.beginPath(); x.arc(cx, cy, r + 6, 0, Math.PI * 2); x.stroke();
+    x.save(); x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.clip();
+    if (A.logo) { const k = Math.max(2 * r / A.logo.width, 2 * r / A.logo.height); x.fillStyle = '#fff'; x.fillRect(cx - r, cy - r, 2 * r, 2 * r); x.drawImage(A.logo, cx - A.logo.width * k / 2, cy - A.logo.height * k / 2, A.logo.width * k, A.logo.height * k); }
+    else { x.fillStyle = A.brand; x.fillRect(cx - r, cy - r, 2 * r, 2 * r); }
+    x.restore();
+    if (!A.logo) { x.fillStyle = A.onBrand; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = '800 ' + Math.round(r * .95) + 'px ' + QR_FONT; x.fillText((b.name || '?').trim().charAt(0).toUpperCase(), cx, cy + 3); }
+  }
+  /* shop name, shrunk to fit; returns the next free baseline */
+  function qrName(x, b, cx, y, maxW, size, color, lines) {
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = color; let ls;
+    do { x.font = '800 ' + size + 'px ' + QR_FONT; ls = wrapText(x, b.name, maxW, lines); if (ls.every(l => x.measureText(l).width <= maxW) || size <= 34) break; size -= 2; } while (size > 32);
+    ls.forEach(l => { x.fillText(l, cx, y); y += size + 6; });
+    return y;
+  }
+  function qrCorners(x, px, py, s, color) {
+    x.strokeStyle = color; x.lineWidth = 10; x.lineCap = 'round'; const L = 54;
+    [[px, py, 1, 1], [px + s, py, -1, 1], [px, py + s, 1, -1], [px + s, py + s, -1, -1]].forEach(([cx, cy, sx, sy]) => { x.beginPath(); x.moveTo(cx, cy + sy * L); x.lineTo(cx, cy); x.lineTo(cx + sx * L, cy); x.stroke(); });
+  }
+  function qrPanel(x, A, px, py, panel, qs) {
+    x.save(); x.shadowColor = 'rgba(25,20,43,.2)'; x.shadowBlur = 36; x.shadowOffsetY = 12; x.fillStyle = '#fff'; rrect(x, px, py, panel, panel, 48); x.fill(); x.restore();
+    x.imageSmoothingEnabled = false; x.drawImage(A.qr, px + (panel - qs) / 2, py + (panel - qs) / 2, qs, qs); x.imageSmoothingEnabled = true;
+    qrCorners(x, px + 18, py + 18, panel - 36, A.theme.accent);
+  }
+  function qrPill(x, text, cx, y, bg, fg, size) {
+    x.font = '800 ' + (size || 26) + 'px ' + QR_FONT; const w = x.measureText(text).width + 72;
+    x.fillStyle = bg; rrect(x, cx - w / 2, y, w, 60, 30); x.fill();
+    x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, cx, y + 31);
+  }
+  function qrFooter(x, A, W, y, hgt, bg) {
+    x.fillStyle = bg; x.fillRect(0, y, W, hgt);
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff'; x.font = '800 40px ' + QR_FONT;
+    x.fillText(A.info.link, W / 2, y + hgt / 2 + 2);
+    x.globalAlpha = .75; x.font = '600 21px ' + QR_FONT; x.fillText((A.hi ? 'स्कैन करें • कमाएँ • जीतें' : 'Scan • Earn • Win') + '  ·  ' + (A.hi ? 'संचालित: ' : 'Powered by ') + A.info.name, W / 2, y + hgt / 2 + 40); x.globalAlpha = 1;
+  }
+  function qrChips(x, A, b, list, px, py, cw, ch, gap) {
+    list.forEach(([icon, title, detail], i) => {
+      const cx = px + i * (cw + gap);
+      x.save(); x.shadowColor = 'rgba(25,20,43,.12)'; x.shadowBlur = 16; x.shadowOffsetY = 5; x.fillStyle = '#fff'; rrect(x, cx, py, cw, ch, 26); x.fill(); x.restore();
+      x.fillStyle = A.theme.accent; rrect(x, cx, py, cw, 10, 5); x.fill();
+      x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = '700 38px ' + EMOJI; x.fillStyle = '#000'; x.fillText(icon, cx + cw / 2, py + 44);
+      x.fillStyle = QR_INK; x.font = '800 23px ' + QR_FONT; x.fillText(wrapText(x, title, cw - 24, 1)[0], cx + cw / 2, py + 82, cw - 24);
+      x.fillStyle = '#6b6485'; x.font = '500 18px ' + QR_FONT; x.fillText(wrapText(x, detail, cw - 28, 1)[0], cx + cw / 2, py + 108, cw - 28);
+    });
+  }
+  function qrCanvas(W, H) { const c = document.createElement('canvas'); c.width = W; c.height = H; return [c, c.getContext('2d')]; }
+
+  async function drawPoster(b) {
+    const A = await qrAssets(b), W = 1080, H = 1527, [c, x] = qrCanvas(W, H), hi = A.hi;
+    x.fillStyle = '#f7f5f0'; x.fillRect(0, 0, W, H);
+    const g = x.createLinearGradient(0, 0, W, 520); g.addColorStop(0, QR_INK); g.addColorStop(1, '#30244b'); x.fillStyle = g; x.fillRect(0, 0, W, 500);
+    x.fillStyle = A.brand; x.fillRect(0, 492, W, 10);
+    x.save(); x.globalAlpha = .1; drawCategoryArt(x, b.category, 70, 250, 1.3, A.theme.soft); drawCategoryArt(x, b.category, 910, 250, 1.3, A.theme.soft); x.restore();
+    qrBrandBar(x, A, W, 40, false);
+    qrLogoCircle(x, A, b, W / 2, 218, 70);
+    let y = qrName(x, b, W / 2, 346, 900, 54, '#fff', 2);
+    if (b.tagline) { x.fillStyle = '#e8e4f0'; x.font = '500 25px ' + QR_FONT; x.fillText(wrapText(x, b.tagline, 820, 1)[0], W / 2, Math.min(478, y + 2)); }
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = QR_INK; x.font = '800 46px ' + QR_FONT;
+    x.fillText(hi ? 'स्कैन करें, इनाम पाएँ' : 'SCAN & EARN REWARDS', W / 2, 574);
+    x.fillStyle = '#6b6485'; x.font = '500 24px ' + QR_FONT; x.fillText(hi ? 'किसी भी फ़ोन कैमरे से स्कैन करें' : 'Use any phone camera. No app needed.', W / 2, 612);
+    qrPanel(x, A, 280, 640, 520, 424);
+    qrPill(x, hi ? 'अभी स्कैन करें' : 'SCAN & START', W / 2, 1134, A.brand, A.onBrand, 26);
+    qrChips(x, A, b, qrHighlights(A.pb, hi), 66, 1232, 300, 128, 24);
+    qrFooter(x, A, W, 1408, 119, QR_INK);
+    return c;
+  }
+  async function drawSticker(b) {
+    const A = await qrAssets(b), W = 1080, H = 1080, [c, x] = qrCanvas(W, H), hi = A.hi;
+    const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, A.brand); g.addColorStop(1, QR_INK); x.fillStyle = g; x.fillRect(0, 0, W, H);
+    qrBrandBar(x, A, W, 40, false);
+    x.save(); x.shadowColor = 'rgba(0,0,0,.3)'; x.shadowBlur = 40; x.shadowOffsetY = 14; x.fillStyle = '#fff'; rrect(x, 70, 130, 940, 810, 52); x.fill(); x.restore();
+    x.fillStyle = A.theme.accent; rrect(x, 70, 130, 940, 14, 7); x.fill();
+    const y = qrName(x, b, W / 2, 206, 840, 46, QR_INK, 2);
+    x.fillStyle = '#6b6485'; x.font = '500 24px ' + QR_FONT; x.textAlign = 'center';
+    x.fillText(wrapText(x, b.tagline || (hi ? A.theme.hi : A.theme.label), 780, 1)[0], W / 2, y - 6);
+    const qs = 440, px = (W - qs) / 2, py = 336;
+    x.imageSmoothingEnabled = false; x.drawImage(A.qr, px, py, qs, qs); x.imageSmoothingEnabled = true;
+    qrCorners(x, px - 22, py - 22, qs + 44, A.theme.accent);
+    qrPill(x, hi ? 'स्कैन • कमाएँ • जीतें' : 'SCAN • EARN • WIN', W / 2, 830, A.brand, A.onBrand, 28);
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff'; x.font = '800 42px ' + QR_FONT; x.fillText(A.info.link, W / 2, 1006);
+    x.globalAlpha = .75; x.font = '600 21px ' + QR_FONT; x.fillText((hi ? 'संचालित: ' : 'Powered by ') + A.info.name, W / 2, 1044); x.globalAlpha = 1;
+    return c;
+  }
+  async function drawStory(b) {
+    const A = await qrAssets(b), W = 1080, H = 1920, [c, x] = qrCanvas(W, H), hi = A.hi;
+    const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#30244b'); g.addColorStop(.55, QR_INK); g.addColorStop(1, '#0f0c1d'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+    x.save(); x.globalAlpha = .08; drawCategoryArt(x, b.category, 80, 330, 1.8, '#fff'); drawCategoryArt(x, b.category, 860, 330, 1.8, '#fff'); x.restore();
+    qrBrandBar(x, A, W, 70, false);
+    qrLogoCircle(x, A, b, W / 2, 300, 92);
+    let y = qrName(x, b, W / 2, 458, 920, 66, '#fff', 2);
+    if (b.tagline) { x.fillStyle = '#e8e4f0'; x.font = '500 28px ' + QR_FONT; x.fillText(wrapText(x, b.tagline, 860, 1)[0], W / 2, y + 2); y += 40; }
+    x.fillStyle = '#ffd86b'; x.font = '800 44px ' + QR_FONT; x.textAlign = 'center'; x.fillText(hi ? 'स्कैन करें और कमाना शुरू करें' : 'SCAN & START EARNING', W / 2, Math.max(y + 60, 640));
+    const rows = qrHighlights(A.pb, hi), ry = Math.max(y + 100, 680);
+    rows.forEach(([icon, title, detail], i) => {
+      const py = ry + i * 128;
+      x.fillStyle = '#ffffff1c'; rrect(x, 80, py, 920, 108, 30); x.fill();
+      x.fillStyle = '#ffffff26'; x.beginPath(); x.arc(150, py + 54, 38, 0, Math.PI * 2); x.fill();
+      x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = '700 42px ' + EMOJI; x.fillStyle = '#fff'; x.fillText(icon, 150, py + 56);
+      x.textAlign = 'left'; x.textBaseline = 'alphabetic'; x.font = '800 33px ' + QR_FONT; x.fillText(wrapText(x, title, 740, 1)[0], 212, py + 54);
+      x.font = '500 24px ' + QR_FONT; x.fillStyle = '#d9d3ea'; x.fillText(wrapText(x, detail, 740, 1)[0], 212, py + 88);
+    });
+    const qy = ry + rows.length * 128 + 24, panel = 520;
+    qrPanel(x, A, (W - panel) / 2, qy, panel, 420);
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = '#fff'; x.font = '800 46px ' + QR_FONT; x.fillText(A.info.link, W / 2, qy + panel + 84);
+    x.globalAlpha = .7; x.font = '600 24px ' + QR_FONT; x.fillText((hi ? 'संचालित: ' : 'Powered by ') + A.info.name + ' · ' + A.info.domain, W / 2, qy + panel + 126); x.globalAlpha = 1;
+    return c;
+  }
+  /* the original "all rewards" card, now also carrying the domain */
+  const QR_TEMPLATES = [
+    { id: 'poster', label: 'Poster', hint: 'A4 counter poster', draw: drawPoster, print: 'A4' },
+    { id: 'sticker', label: 'Sticker', hint: 'Square, for glass or table', draw: drawSticker, print: '150mm 150mm' },
+    { id: 'story', label: 'Story', hint: 'WhatsApp status', draw: drawStory, print: null },
+    { id: 'rewards', label: 'Rewards', hint: 'Full rewards card', draw: b => drawRewardsCard(b), print: null }
+  ];
+  function drawQrCard(b, id) { return (QR_TEMPLATES.find(tpl => tpl.id === id) || QR_TEMPLATES[0]).draw(b); }
+  function printCanvas(canvas, size) {
+    const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(f);
+    const d = f.contentDocument; d.open();
+    d.write('<!doctype html><title>' + (S.biz.name || 'QR') + '</title><style>@page{size:' + size + ';margin:0}html,body{margin:0}img{display:block;width:100%;height:auto}</style><img src="' + canvas.toDataURL('image/png') + '">');
+    d.close();
+    const img = d.querySelector('img'), go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } finally { setTimeout(() => f.remove(), 60000); } };
+    if (img.complete) go(); else img.onload = go;
+  }
+
   function qrCard() {
     const b = S.biz, url = location.origin + '/b/' + b.shop_code + '/', box = h('div', { style: 'display:grid;place-items:center;min-height:240px' }, h('div.spin'));
-    let canvas = null;
+    let canvas = null, tpl = 'poster';
+    try { tpl = localStorage.fx_qr_tpl || 'poster'; } catch (e) { /* storage blocked */ }
+    if (!QR_TEMPLATES.some(x => x.id === tpl)) tpl = 'poster';
     const blob = () => new Promise((res, rej) => canvas.toBlob(x => (x ? res(x) : rej(new Error(t('Something went wrong. Please try again.')))), 'image/png'));
     const fname = (b.name || 'shop').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'shop';
-    const mark = () => { localStorage['fx_printed_' + b.shop_code] = '1'; };
+    const mark = () => { try { localStorage['fx_printed_' + b.shop_code] = '1'; } catch (e) { /* ignore */ } };
     const download = btn => busy(btn, async () => {
-      const f = await blob(), a = h('a', { href: URL.createObjectURL(f), download: fname + '-qr.png' });
+      const f = await blob(), a = h('a', { href: URL.createObjectURL(f), download: fname + '-' + tpl + '-qr.png' });
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); mark();
     });
     const shareCard = btn => busy(btn, async () => {
-      const f = new File([await blob()], fname + '-qr.png', { type: 'image/png' }), text = t('Collect rewards at {shop}', { shop: b.name });
+      const f = new File([await blob()], fname + '-' + tpl + '-qr.png', { type: 'image/png' }), text = t('Collect rewards at {shop}', { shop: b.name });
       if (navigator.canShare && navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f], text: text + ' ' + url }); mark(); } catch (e) { if (e.name !== 'AbortError') throw e; } }
       else FX.share(text, url);
     });
-    drawQrCard(b).then(c => { canvas = c; c.setAttribute('role', 'img'); c.setAttribute('aria-label', t('Your QR code')); c.style.cssText = 'width:100%;max-width:340px;height:auto;border-radius:16px;box-shadow:0 8px 26px -10px #0004'; box.replaceChildren(c); })
-      .catch(e => box.replaceChildren(h('p.err', e.message), h('button.btn.ghost.sm', { onclick: () => FX.render(true) }, t('Try again'))));
-    return h('div.card.stack', h('h3', t('Your QR card')), h('p.muted.small', t('One card with your shop details and QR code. Download it to print, or share it on WhatsApp.')), box,
-      h('div.stack.s', { style: 'width:100%;max-width:340px;margin:0 auto' }, h('button.btn', { onclick: e => { if (canvas) download(e.currentTarget); } }, t('Download')), h('button.btn.ghost', { onclick: e => { if (canvas) shareCard(e.currentTarget); } }, t('Share'))),
+    const printBtn = h('button.btn.ghost', { onclick: () => { const cur = QR_TEMPLATES.find(x => x.id === tpl); if (canvas && cur.print) { printCanvas(canvas, cur.print); mark(); } } }, t('Print'));
+    const hint = h('p.muted.small', { style: 'text-align:center;margin:0' });
+    const seg = h('div.seg.qr-seg');
+    const paint = () => {
+      canvas = null; box.replaceChildren(h('div.spin'));
+      const cur = QR_TEMPLATES.find(x => x.id === tpl);
+      seg.replaceChildren(...QR_TEMPLATES.map(x => h('button', { 'aria-selected': String(x.id === tpl), onclick: () => { tpl = x.id; try { localStorage.fx_qr_tpl = tpl; } catch (e) { /* ignore */ } paint(); } }, t(x.label))));
+      hint.textContent = t(cur.hint); printBtn.style.display = cur.print ? '' : 'none';
+      const mine = tpl;
+      drawQrCard(b, mine).then(c => { if (mine !== tpl) return; canvas = c; c.setAttribute('role', 'img'); c.setAttribute('aria-label', t('Your QR code')); c.style.cssText = 'width:100%;max-width:340px;height:auto;border-radius:16px;box-shadow:0 8px 26px -10px #0004'; box.replaceChildren(c); })
+        .catch(e => box.replaceChildren(h('p.err', e.message), h('button.btn.ghost.sm', { onclick: paint }, t('Try again'))));
+    };
+    paint();
+    return h('div.card.stack', h('h3', t('Your QR card')), h('p.muted.small', t('Pick a design. Every card shows your shop, the OFFLet brand and the web address. Download it, print it, or share it on WhatsApp.')), seg, box, hint,
+      h('div.stack.s', { style: 'width:100%;max-width:340px;margin:0 auto' }, h('button.btn', { onclick: e => { if (canvas) download(e.currentTarget); } }, t('Download')),
+        h('div.g2', printBtn, h('button.btn.ghost', { onclick: e => { if (canvas) shareCard(e.currentTarget); } }, t('Share')))),
       h('div.stack.s', { style: 'text-align:center' }, h('small.muted', t('Your shop link')), h('code', { style: 'word-break:break-all;font-size:calc(12.5px * var(--font-scale, .8))' }, url),
         h('div.row.wrap', { style: 'justify-content:center' }, h('button.btn.ghost.sm', { onclick: () => FX.copy(url) }, t('Copy link')), h('a.btn.ghost.sm', { href: '#/counter' }, t('Counter code screen')))));
   }

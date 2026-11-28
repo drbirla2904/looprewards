@@ -65,6 +65,7 @@ urlpatterns = [
     path("b/<str:code>/coin-redemptions/", ev.coin_redemptions),
     path("b/<str:code>/coin-redemptions/<int:pk>/", ev.coin_redemption_review),
     path("coin-rewards/<int:reward_id>/request/", ev.coin_redemption_request),
+    path("coin-redemptions/<int:pk>/cancel/", ev.coin_redemption_cancel),
     path("b/<str:code>/scratch-campaign/", ev.scratch_campaign_get),
     path("b/<str:code>/scratch-campaign/configure/", ev.scratch_campaign),
     path("scratch-tickets/<int:ticket_id>/reveal/", ev.scratch_ticket_reveal),

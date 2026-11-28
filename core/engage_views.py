@@ -1,12 +1,12 @@
 """v2 API: wallet, customer CRM, campaigns, insights, boosts, perks, services, bookings, feedback, blueprints."""
-from datetime import timedelta
+from datetime import date, timedelta
 import json
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -55,6 +55,19 @@ def _dec(v, field="value"):
     if not d.is_finite() or d < 0 or d > Decimal("99999999.99"):
         raise ValidationError(f"Enter a valid {field}.")
     return d.quantize(Decimal("0.01"))
+
+
+def _offer_end_date(raw):
+    """Optional last day of an offer (YYYY-MM-DD, today or later)."""
+    if raw in (None, ""):
+        return None
+    try:
+        d = date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        raise ValidationError("Enter the end date as YYYY-MM-DD.")
+    if d < timezone.localdate():
+        raise ValidationError("The end date cannot be in the past.")
+    return d
 
 
 def _offer_item_image(image):
@@ -117,15 +130,47 @@ def customer_shop(request, code):
     account = CoinAccount.objects.filter(profile=p).first()
     coin_config = getattr(biz, "coin_program", None)
     coins_enabled = bool(coin_config and coin_config.enabled)
+    balance = account.balance if account else 0
+    coin_rewards = [{"id": r.id, "title": r.title, "description": r.description, "cost": r.cost}
+                    for r in biz.coin_rewards.filter(active=True)] if coins_enabled else []
+    next_reward = next((r for r in coin_rewards if r["cost"] > balance), None)
+    history = list(account.transactions.select_related("redemption__reward")[:25]) if account else []
     st["coins"] = {
         "enabled": coins_enabled,
-        "balance": account.balance if account else 0,
-        "rewards": ([{"id": r.id, "title": r.title, "description": r.description, "cost": r.cost}
-                     for r in biz.coin_rewards.filter(active=True)] if coins_enabled else []),
+        "balance": balance,
+        "rewards": coin_rewards,
+        "next_reward": ({**next_reward, "needed": next_reward["cost"] - balance,
+                         "pct": int(100 * balance / next_reward["cost"])} if next_reward else None),
+        "rules": ({"spend_per_coin": coin_config.spend_per_coin, "visit_coins": coin_config.visit_coins,
+                   "welcome_bonus": coin_config.welcome_bonus, "referrer_bonus": coin_config.referrer_bonus,
+                   "friend_bonus": coin_config.friend_bonus, "daily_cap": coin_config.daily_cap}
+                  if coins_enabled else None),
+        "lifetime": (account.transactions.filter(delta__gt=0).exclude(kind="refund")
+                     .aggregate(n=Sum("delta"))["n"] or 0) if account else 0,
+        "history": [{"id": t.id, "delta": t.delta, "kind": t.kind, "reason": t.reason,
+                     "title": t.redemption.reward.title if t.redemption_id else "",
+                     "at": t.created_at} for t in history],
         "redemptions": [{
             "id": r.id, "title": r.reward.title, "coins": r.coins_cost, "status": r.status,
-            "requested_at": r.requested_at,
+            "code": f"CR-{r.id:05d}", "requested_at": r.requested_at,
         } for r in p.coin_redemptions.select_related("reward").order_by("-requested_at")[:10]],
+    }
+    friends = list(p.referred.select_related("user").order_by("-joined_at")[:30])
+    bought = set(AuditLog.objects.filter(
+        business=biz, action="perk_referral", ref__in=[str(f.id) for f in friends]).values_list("ref", flat=True))
+    st["referral"] = {
+        "code": code_, "url": st["referral_url"], "reward": st["referral_reward"],
+        "joined": p.referred.count(),
+        "purchased": AuditLog.objects.filter(business=biz, action="perk_referral",
+                                             ref__in=[str(x) for x in p.referred.values_list("id", flat=True)]).count(),
+        "coins_earned": (account.transactions.filter(kind="bonus", reason="referrer").aggregate(n=Sum("delta"))["n"] or 0) if account else 0,
+        "referrer_bonus": coin_config.referrer_bonus if coins_enabled else 0,
+        "friend_bonus": coin_config.friend_bonus if coins_enabled else 0,
+        "friends": [{"name": (f.user.first_name or "Friend").split(" ")[0], "status": "purchased" if str(f.id) in bought else "joined",
+                     "joined_at": f.joined_at} for f in friends],
+        "invited_by": ((p.referred_by.user.first_name or "a friend").split(" ")[0] if p.referred_by_id else ""),
+        "invited_pending": bool(p.referred_by_id and not AuditLog.objects.filter(
+            business=biz, action="perk_referral", ref=str(p.id)).exists()),
     }
     st["scratch_tickets"] = [{
         "id": ticket.id, "revealed": bool(ticket.revealed_at), "is_winner": ticket.is_winner if ticket.revealed_at else None,
@@ -458,6 +503,8 @@ def shop_offers(request, code):
     if not isinstance(items, list) or not 1 <= len(items) <= 20:
         raise ValidationError("Add between 1 and 20 items.")
 
+    title = str(request.data.get("title", "")).strip()[:80]
+    ends_on = _offer_end_date(request.data.get("ends_on"))
     cleaned = []
     for index, item in enumerate(items):
         if not isinstance(item, dict):
@@ -478,7 +525,7 @@ def shop_offers(request, code):
         cleaned.append((name, price, offer_price, image))
 
     with transaction.atomic():
-        offer = ShopOffer.objects.create(business=biz, offer_type=offer_type, value=value)
+        offer = ShopOffer.objects.create(business=biz, offer_type=offer_type, value=value, title=title, ends_on=ends_on)
         for name, price, offer_price, image in cleaned:
             ShopOfferItem.objects.create(offer=offer, name=name, price=price, offer_price=offer_price, image=image)
     item_names = ", ".join(item[0] for item in cleaned[:3]) + (" and more" if len(cleaned) > 3 else "")
@@ -486,7 +533,7 @@ def shop_offers(request, code):
         "fixed-price" if offer_type == "fixed_price" else "buy-one-get-one"
     )
     announce_shop_customers(
-        biz, f"New {offer_label} offer at {biz.name}: {item_names}.",
+        biz, f"New {offer_label} offer at {biz.name}: {title or item_names}." + (f" Valid till {ends_on:%d %b}." if ends_on else ""),
         link=f"/b/{biz.shop_code}/",
     )
     offer = ShopOffer.objects.prefetch_related("items").get(pk=offer.pk)
@@ -503,10 +550,21 @@ def shop_offer_detail(request, code, pk):
         for image in images:
             default_storage.delete(image)
         return Response(status=204)
-    if "active" not in request.data or not isinstance(request.data["active"], bool):
+    changed = []
+    if "active" in request.data:
+        if not isinstance(request.data["active"], bool):
+            raise ValidationError({"active": "Choose whether this offer is active."})
+        offer.active = request.data["active"]
+        changed.append("active")
+    if "ends_on" in request.data:
+        offer.ends_on = _offer_end_date(request.data["ends_on"])
+        changed.append("ends_on")
+    if "title" in request.data:
+        offer.title = str(request.data["title"]).strip()[:80]
+        changed.append("title")
+    if not changed:
         raise ValidationError({"active": "Choose whether this offer is active."})
-    offer.active = request.data["active"]
-    offer.save(update_fields=["active"])
+    offer.save(update_fields=changed)
     return Response(ShopOfferSerializer(offer).data)
 
 
@@ -585,6 +643,16 @@ def perks(request, code):
     return Response(out)
 
 
+def _coin_int(data, key, current, lo, hi, label):
+    try:
+        v = int(data.get(key, current))
+    except (TypeError, ValueError):
+        raise ValidationError(f"{label} must be a whole number.")
+    if not lo <= v <= hi:
+        raise ValidationError(f"{label} must be between {lo} and {hi}.")
+    return v
+
+
 @api_view(["GET", "PUT"])
 def coin_program(request, code):
     biz = _owner_biz(request, code)
@@ -593,18 +661,29 @@ def coin_program(request, code):
         enabled = request.data.get("enabled", config.enabled)
         if not isinstance(enabled, bool):
             raise ValidationError("Choose whether Coin Rewards is enabled.")
-        try:
-            rate = int(request.data.get("spend_per_coin", config.spend_per_coin))
-            cap = int(request.data.get("daily_cap", config.daily_cap))
-        except (TypeError, ValueError):
-            raise ValidationError("Spend rate and daily cap must be whole numbers.")
-        if not 1 <= rate <= 100000 or not 1 <= cap <= 1000000:
-            raise ValidationError("Spend rate must be 1–100000 and daily cap 1–1000000.")
-        config.enabled, config.spend_per_coin, config.daily_cap = enabled, rate, cap
-        config.save(update_fields=["enabled", "spend_per_coin", "daily_cap", "updated_at"])
+        d = request.data
+        config.enabled = enabled
+        config.spend_per_coin = _coin_int(d, "spend_per_coin", config.spend_per_coin, 1, 100000, "Spend rate")
+        config.daily_cap = _coin_int(d, "daily_cap", config.daily_cap, 1, 1000000, "Daily cap")
+        config.welcome_bonus = _coin_int(d, "welcome_bonus", config.welcome_bonus, 0, 100000, "Welcome bonus")
+        config.visit_coins = _coin_int(d, "visit_coins", config.visit_coins, 0, 100000, "Coins per visit")
+        config.referrer_bonus = _coin_int(d, "referrer_bonus", config.referrer_bonus, 0, 100000, "Referrer bonus")
+        config.friend_bonus = _coin_int(d, "friend_bonus", config.friend_bonus, 0, 100000, "Friend bonus")
+        config.save()
     rewards = biz.coin_rewards.annotate(redemptions_count=Count("redemptions"))
+    since = timezone.now() - timedelta(days=30)
+    tx = CoinTransaction.objects.filter(account__profile__business=biz)
+    stats = {
+        "holders": CoinAccount.objects.filter(profile__business=biz, balance__gt=0).count(),
+        "outstanding": CoinAccount.objects.filter(profile__business=biz).aggregate(n=Sum("balance"))["n"] or 0,
+        "issued_30d": tx.filter(delta__gt=0, created_at__gte=since).exclude(kind="refund").aggregate(n=Sum("delta"))["n"] or 0,
+        "redeemed_30d": CoinRedemption.objects.filter(profile__business=biz, status="approved", reviewed_at__gte=since).count(),
+        "pending": CoinRedemption.objects.filter(profile__business=biz, status="pending").count(),
+    }
     return Response({
         "enabled": config.enabled, "spend_per_coin": config.spend_per_coin, "daily_cap": config.daily_cap,
+        "welcome_bonus": config.welcome_bonus, "visit_coins": config.visit_coins,
+        "referrer_bonus": config.referrer_bonus, "friend_bonus": config.friend_bonus, "stats": stats,
         "rewards": [{"id": r.id, "title": r.title, "description": r.description, "cost": r.cost,
                      "active": r.active, "redemptions_count": r.redemptions_count} for r in rewards],
     })
@@ -662,7 +741,7 @@ def coin_reward_detail(request, code, pk):
 def coin_redemptions(request, code):
     biz = _mgr_biz(request, code)
     return Response([{
-        "id": r.id, "customer": r.profile.user.first_name or "Customer",
+        "id": r.id, "code": f"CR-{r.id:05d}", "customer": r.profile.user.first_name or "Customer",
         "mobile_last4": r.profile.user.username[-4:], "reward": r.reward.title,
         "coins": r.coins_cost, "requested_at": r.requested_at,
     } for r in CoinRedemption.objects.filter(profile__business=biz, status="pending")
@@ -721,6 +800,24 @@ def coin_redemption_request(request, reward_id):
         push(manager, f"{user.first_name or 'A customer'} requested {reward.title} with coins.",
              link="/app/#/rewards")
     return Response({"id": redemption.id, "status": redemption.status, "balance": account.balance}, status=201)
+
+
+@api_view(["POST"])
+@transaction.atomic
+def coin_redemption_cancel(request, pk):
+    """Customer changes their mind while the shop has not reviewed the request: coins go straight back."""
+    user = _customer(request)
+    redemption = get_object_or_404(CoinRedemption.objects.select_for_update().select_related("reward"),
+                                   pk=pk, profile__user=user)
+    if redemption.status != "pending":
+        raise ValidationError("This request has already been reviewed.")
+    redemption.status, redemption.reviewed_at = "declined", timezone.now()
+    redemption.save(update_fields=["status", "reviewed_at"])
+    account = CoinAccount.objects.select_for_update().get(profile=redemption.profile)
+    account.balance += redemption.coins_cost
+    account.save(update_fields=["balance", "updated_at"])
+    CoinTransaction.objects.create(account=account, delta=redemption.coins_cost, kind="refund", redemption=redemption)
+    return Response({"status": "cancelled", "balance": account.balance})
 
 
 @api_view(["PUT"])
